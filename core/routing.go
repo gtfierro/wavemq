@@ -273,11 +273,9 @@ func NewTerminus(qm *QManager, am *AuthModule, cfg *RoutingConfig) (*Terminus, e
 	}
 
 	//Open the database
-	opts := badger.DefaultOptions
+	opts := badger.DefaultOptions(cfg.PersistDataStore)
 	//Required on RPI
 	//opts.ValueLogLoadingMode = options.FileIO
-	opts.Dir = cfg.PersistDataStore
-	opts.ValueDir = cfg.PersistDataStore
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, err

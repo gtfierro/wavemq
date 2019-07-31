@@ -75,13 +75,14 @@ func (t *Terminus) LoadID() (id string) {
 			fmt.Printf("creating new ID for router\n")
 			id = uuid.NewRandom().String()
 			return txn.Set(key, []byte(id))
-		}
-		idb, err := v.Value()
-		if err != nil {
+		} else if err != nil {
 			return err
 		}
-		id = string(idb)
-		return nil
+		err = v.Value(func(val []byte) error {
+			id = string(val)
+			return nil
+		})
+		return err
 	})
 	if err != nil {
 		panic(err)
@@ -121,7 +122,7 @@ func (t *Terminus) getObject(cf int, path []byte) (rv []byte, err error) {
 			err = e
 			return e
 		} else {
-			rv, err = item.Value()
+			rv, err = item.ValueCopy(nil)
 			return nil
 		}
 	})
@@ -178,7 +179,7 @@ func (ia *iteratorAdapter) Key() []byte {
 	return ia.it.Item().Key()[1:] //Strip CF
 }
 func (ia *iteratorAdapter) Value() []byte {
-	rv, err := ia.it.Item().Value()
+	rv, err := ia.it.Item().ValueCopy(nil)
 	if err != nil {
 		panic(err)
 	}

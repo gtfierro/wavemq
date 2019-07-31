@@ -221,9 +221,7 @@ func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 	}
 
 	//Open database
-	opts := badger.DefaultOptions
-	opts.Dir = cfg.QueueDataStore
-	opts.ValueDir = cfg.QueueDataStore
+	opts := badger.DefaultOptions(cfg.QueueDataStore)
 	db, err := badger.Open(opts)
 	if err != nil {
 		return nil, err
@@ -256,7 +254,7 @@ func (qm *QManager) trimDB() {
 			goto again
 		}
 		fmt.Printf("GC returns: %v\n", err)
-		time.Sleep(5 * time.Minute)
+		time.Sleep(1 * time.Minute)
 	}
 }
 func (qm *QManager) Shutdown() {
@@ -341,7 +339,7 @@ func (qm *QManager) recover() error {
 		defer it.Close()
 		hdrprefix := []byte("h/")
 		for it.Seek(hdrprefix); it.ValidForPrefix(hdrprefix); it.Next() {
-			v, err := it.Item().Value()
+			v, err := it.Item().ValueCopy(nil)
 			if err != nil {
 				return err
 			}
@@ -377,7 +375,7 @@ func (qm *QManager) recover() error {
 				if index > largest {
 					largest = index
 				}
-				v, err := it.Item().Value()
+				v, err := it.Item().ValueCopy(nil)
 				if err != nil {
 					return err
 				}
@@ -704,7 +702,7 @@ func (q *Queue) GC() error {
 		pmCommittedMessages.Add(-1)
 		err := txn.Delete([]byte(e))
 		if err == badger.ErrTxnTooBig {
-			err := txn.Commit(nil)
+			err := txn.Commit()
 			if err != nil {
 				return err
 			}
@@ -780,7 +778,7 @@ bulkflush:
 			}
 			err = txn.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
 			if err == badger.ErrTxnTooBig {
-				err := txn.Commit(nil)
+				err := txn.Commit()
 				if err != nil {
 					return err
 				}
@@ -795,7 +793,7 @@ bulkflush:
 		break
 	}
 
-	return txn.Commit(nil)
+	return txn.Commit()
 }
 
 func (q *Queue) Destroy() {
@@ -846,7 +844,7 @@ bulkerase:
 			err := txn.Delete(it.Item().Key())
 			if err == badger.ErrTxnTooBig {
 				it.Close()
-				err := txn.Commit(nil)
+				err := txn.Commit()
 				if err != nil {
 					return err
 				}

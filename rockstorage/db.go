@@ -46,6 +46,11 @@ func QueueDelete(key []byte) {
 	C.queue_delete((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)))
 }
 
+func QueueDeletePrefix(key []byte) int {
+	val := C.queue_delete_prefix((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)))
+	return int(val)
+}
+
 type Iterator struct {
 	state         unsafe.Pointer
 	prefix        []byte

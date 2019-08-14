@@ -76,12 +76,15 @@ extern "C" {
         delete (Iterator*)state;
     }
 
-    void queue_delete_prefix(const char *pfx, size_t pfxlen) {
+    size_t queue_delete_prefix(const char *pfx, size_t pfxlen) {
+        size_t _count = 0;
         auto it = db->NewIterator(ReadOptions());
         Slice prefix = Slice(pfx, pfxlen);
-        for (it->Seek(prefix); it->Valid() && it->key().starts_with(prefix); it.Next()) {
-            db->Delete(WriteOptions(), it->key());
+        for (it->Seek(prefix); it->Valid() && it->key().starts_with(prefix); it->Next()) {
+              db->Delete(WriteOptions(), it->key());
+              _count++;
         }
+        return _count;
     }
 
     void queue_set(const char *key, size_t keylen, const char *value, size_t valuelen) {

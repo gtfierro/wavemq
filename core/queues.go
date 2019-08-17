@@ -224,7 +224,7 @@ func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 	//opts := badger.DefaultOptions
 	//opts.Dir = cfg.QueueDataStore
 	//opts.ValueDir = cfg.QueueDataStore
-	rocksdb.Initialize(cfg.QueueDataStore)
+	rocksdb.Initialize(cfg.QueueDataStore, false)
 	//db, err := badger.Open(opts)
 	//if err != nil {
 	//	return nil, err
@@ -266,6 +266,7 @@ func (qm *QManager) Shutdown() {
 		q.Flush()
 	}
 	qm.ctxcancel()
+	//rocksdb.Close()
 	//err := qm.db.Close()
 	//if err != nil {
 	//	panic(err)
@@ -461,6 +462,7 @@ func (qm *QManager) bgTasks() {
 	last := time.Now()
 	for {
 		last = last.Add(time.Duration(qm.cfg.FlushInterval * 1e9))
+		fmt.Println(1)
 		toSleep := last.Sub(time.Now())
 		if toSleep > 0 {
 			time.Sleep(toSleep)
@@ -470,6 +472,7 @@ func (qm *QManager) bgTasks() {
 		if qm.ctx.Err() != nil {
 			return
 		}
+		fmt.Println(2)
 		//Collate a list of queues to process
 		qm.qzmu.Lock()
 		qz := make([]*Queue, 0, len(qm.qz))
@@ -494,10 +497,12 @@ func (qm *QManager) bgTasks() {
 			}
 
 			//GC the entries in the DB if they have been processed
+			fmt.Println(3)
 			q.GC()
 
 			//Write out a new header. Flush will also do this, but for an active
 			//queue, the flush might not trigger below
+			fmt.Println(4)
 			q.mu.Lock()
 			if q.hdrChanged {
 				err := q.writeHeader()
@@ -506,6 +511,7 @@ func (qm *QManager) bgTasks() {
 				}
 			}
 
+			fmt.Println(5)
 			//There are a couple reasons we might want to flush. We don't
 			//want to do it on an active queue for no reason though
 			if nw.Sub(q.lastDequeue) > IdleFlushTime ||
@@ -520,6 +526,7 @@ func (qm *QManager) bgTasks() {
 				q.mu.Unlock()
 			}
 		}
+		fmt.Println(6)
 
 		qm.qzmu.Lock()
 		for _, q := range toremove {
@@ -828,31 +835,49 @@ func (q *Queue) Flush() error {
 
 	//Be prepared to break the transaction into smaller ones
 	//bulkflush:
-	for {
-		it := ucHead
-		for it != nil {
-			nextit := it.Next
-			bin, err := proto.Marshal(it.Content)
-			if err != nil {
-				panic(err)
-			}
-			rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-			//err = txn.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-			//if err == badger.ErrTxnTooBig {
-			//	err := txn.Commit(nil)
-			//	if err != nil {
-			//		return err
-			//	}
-			//	txn = q.mgr.db.NewTransaction(true)
-			//	continue bulkflush
-			//} else if err != nil {
-			//	return err
-			//}
-			pmCommittedMessages.Add(1)
-			it = nextit
+
+	//wb := rocksdb.NewWriteBatch()
+	it := ucHead
+	for it != nil {
+		nextit := it.Next
+		bin, err := proto.Marshal(it.Content)
+		if err != nil {
+			//wb.Commit()
+			panic(err)
 		}
-		break
+		//wb.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
+		rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
+		pmCommittedMessages.Add(1)
+		it = nextit
 	}
+	fmt.Println("finished flush")
+	//wb.Commit()
+
+	//for {
+	//	it := ucHead
+	//	for it != nil {
+	//		nextit := it.Next
+	//		bin, err := proto.Marshal(it.Content)
+	//		if err != nil {
+	//			panic(err)
+	//		}
+	//		rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
+	//		//err = txn.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
+	//		//if err == badger.ErrTxnTooBig {
+	//		//	err := txn.Commit(nil)
+	//		//	if err != nil {
+	//		//		return err
+	//		//	}
+	//		//	txn = q.mgr.db.NewTransaction(true)
+	//		//	continue bulkflush
+	//		//} else if err != nil {
+	//		//	return err
+	//		//}
+	//		pmCommittedMessages.Add(1)
+	//		it = nextit
+	//	}
+	//	break
+	//}
 
 	return nil //return txn.Commit(nil)
 }
@@ -902,7 +927,8 @@ func (q *Queue) remove() error {
 		//opts.PrefetchValues = false
 		//it := txn.NewIterator(opts)
 		prefix := []byte(keyQueuePrefix(q.hdr.ID))
-		rocksdb.QueueDeletePrefix(prefix)
+		num := rocksdb.QueueDeletePrefix(prefix)
+		pmCommittedMessages.Add(-float64(num))
 		//it := rocksdb.NewIterator(prefix)
 		//for it.HasNext() {
 		//	it.Next()
@@ -934,6 +960,7 @@ func (q *Queue) expired() bool {
 	if q.hdr.Expires == 0 {
 		return false
 	}
+	fmt.Println(time.Now(), time.Unix(0, q.hdr.Expires))
 	return time.Now().UnixNano() > q.hdr.Expires
 }
 

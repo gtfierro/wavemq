@@ -8,7 +8,7 @@ import (
 
 func TestSimple(t *testing.T) {
 	require := require.New(t)
-	Initialize("_testdb_")
+	Initialize("_testdb_", false)
 	k1, v1 := []byte("key1"), []byte("value1")
 	QueueSet(k1, v1)
 	v1p, err := QueueGet(k1)
@@ -22,7 +22,7 @@ func TestSimple(t *testing.T) {
 
 func TestIter(t *testing.T) {
 	require := require.New(t)
-	Initialize("_testdb_")
+	Initialize("_testdb_", false)
 
 	k1, v1 := []byte("a/b/c"), []byte("h/value1")
 	k2, v2 := []byte("a/b/d"), []byte("h/value2")
@@ -53,7 +53,7 @@ func TestIter(t *testing.T) {
 }
 
 func BenchmarkInsertThenDelete(b *testing.B) {
-	Initialize("_testdb_")
+	Initialize("_testdb_", false)
 	for i := 0; i < b.N; i++ {
 		key := make([]byte, 4)
 		binary.LittleEndian.PutUint32(key, uint32(i))
@@ -63,7 +63,7 @@ func BenchmarkInsertThenDelete(b *testing.B) {
 }
 
 func BenchmarkSet(b *testing.B) {
-	Initialize("_testdb_")
+	Initialize("_testdb_", false)
 	for i := 0; i < b.N; i++ {
 		key := make([]byte, 4)
 		binary.LittleEndian.PutUint32(key, uint32(i))

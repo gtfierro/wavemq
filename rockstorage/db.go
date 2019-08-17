@@ -6,6 +6,7 @@ package rocksdb
 import "C"
 import (
 	"errors"
+	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -14,13 +15,21 @@ var didInit bool = false
 
 var ErrObjNotFound = errors.New("Object Not Found")
 
-func Initialize(dbname string) {
+func Initialize(dbname string, spinning_metal bool) {
 	if didInit {
 		return
 	}
+	opt_for_spin := 0
+	if spinning_metal {
+		opt_for_spin = 1
+	}
 	name := []byte(dbname)
-	C.c_init((*C.char)(unsafe.Pointer(&name[0])), (C.size_t)(len(name)))
+	C.c_init((*C.char)(unsafe.Pointer(&name[0])), (C.size_t)(len(name)), (C.size_t)(opt_for_spin))
 	didInit = true
+}
+
+func Close() {
+	C.close()
 }
 
 func QueueGet(key []byte) ([]byte, error) {
@@ -73,6 +82,7 @@ func NewIterator(prefix []byte) *Iterator {
 		//it involves deleting a snapshot. Lets not block the finalizer
 		//goroutine
 		go func() {
+			fmt.Println("finalize iterator")
 			C.queue_it_delete(it.state)
 		}()
 	})
@@ -116,4 +126,33 @@ func (it *Iterator) Key() []byte {
 }
 func (it *Iterator) Value() []byte {
 	return it.current_value
+}
+
+type WriteBatch struct {
+	state unsafe.Pointer
+}
+
+func NewWriteBatch() *WriteBatch {
+	wb := WriteBatch{}
+	C.queue_wb_start(&wb.state)
+	runtime.SetFinalizer(&wb, func(wb *WriteBatch) {
+		//I have no idea how long rocks will take to do this. I suspect
+		//it involves deleting a snapshot. Lets not block the finalizer
+		//goroutine
+		//go func() {
+		//	fmt.Println("finalize write batch")
+		//	C.queue_wb_delete(wb.state)
+		//}()
+	})
+	return &wb
+}
+
+func (wb *WriteBatch) Set(key, value []byte) {
+	C.queue_wb_set(wb.state, (*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)),
+		(*C.char)(unsafe.Pointer(&value[0])), (C.size_t)(len(value)))
+}
+
+func (wb *WriteBatch) Commit() {
+	C.queue_wb_done(wb.state)
+	//C.queue_wb_delete(wb.state)
 }

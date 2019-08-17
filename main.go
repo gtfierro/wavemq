@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"net/http"
 	_ "net/http/pprof"
@@ -15,7 +16,11 @@ import (
 	"github.com/immesys/wavemq/core"
 	"github.com/immesys/wavemq/server"
 	logging "github.com/op/go-logging"
+	// "github.com/pkg/profile"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/immesys/sysdigtracer"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 var lg = logging.MustGetLogger("main")
@@ -23,6 +28,8 @@ var lg = logging.MustGetLogger("main")
 const WAVEMQPermissionSet = "\x4a\xd2\x3f\x5f\x6e\x73\x17\x38\x98\xef\x51\x8c\x6a\xe2\x7a\x7f\xcf\xf4\xfe\x9b\x86\xa3\xf1\xa2\x08\xc4\xde\x9e\xac\x95\x39\x6b"
 const WAVEMQPublish = "publish"
 const WAVEMQSubscribe = "subscribe"
+
+var rootspan opentracing.Span
 
 //TODO test expiry gives unsub notifications
 //TODO add "we are DR for" in config. Reject peer publish messages if we are not DR
@@ -41,6 +48,21 @@ func main() {
 		fmt.Printf("usage: wavemq config.toml\n")
 		os.Exit(1)
 	}
+
+	//defer profile.Start(profile.BlockProfile, profile.ProfilePath(".")).Stop()
+
+	tracer := sysdigtracer.New()
+	opentracing.SetGlobalTracer(tracer)
+	rootspan = opentracing.StartSpan("root")
+	defer rootspan.Finish()
+
+	go func() {
+		for {
+			span := opentracing.StartSpan("Dummy")
+			time.Sleep(150 * time.Millisecond)
+			span.Finish()
+		}
+	}()
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
@@ -77,6 +99,7 @@ func main() {
 		fmt.Printf("failed to initialize routing: %v\n", err)
 		os.Exit(1)
 	}
+	//defer profile.Start(profile.MemProfile, profile.ProfilePath(".")).Stop()
 	server.NewLocalServer(tm, am, &conf.LocalConfig)
 	server.NewPeerServer(tm, am, &conf.PeerConfig)
 	sigchan := make(chan os.Signal, 30)

@@ -11,9 +11,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dgraph-io/badger"
 	"github.com/golang/protobuf/proto"
 	pb "github.com/immesys/wavemq/mqpb"
+	"github.com/immesys/wavemq/rockstorage"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -66,7 +67,7 @@ func init() {
 //the database backing the queues
 type QManager struct {
 	cfg QManagerConfig
-	db  *badger.DB
+	db  *rockstorage.DB
 
 	qz map[ID]*Queue
 	//The mutex must be held whenever qz is modified
@@ -221,10 +222,10 @@ func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 	}
 
 	//Open database
-	opts := badger.DefaultOptions
-	opts.Dir = cfg.QueueDataStore
-	opts.ValueDir = cfg.QueueDataStore
-	db, err := badger.Open(opts)
+	//opts := badger.DefaultOptions
+	//opts.Dir = cfg.QueueDataStore
+	//opts.ValueDir = cfg.QueueDataStore
+	db, err := rockstorage.NewDB(cfg.QueueDataStore)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +240,7 @@ func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 	}
 	err = rv.recover()
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "recovery")
 	}
 	go rv.bgTasks()
 	go rv.trimDB()
@@ -248,16 +249,16 @@ func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 }
 
 func (qm *QManager) trimDB() {
-	for {
-	again:
-		err := qm.db.RunValueLogGC(0.5)
-		if err == nil {
-			fmt.Printf("GC successful\n")
-			goto again
-		}
-		fmt.Printf("GC returns: %v\n", err)
-		time.Sleep(5 * time.Minute)
-	}
+	//for {
+	//again:
+	//	err := qm.db.RunValueLogGC(0.5)
+	//	if err == nil {
+	//		fmt.Printf("GC successful\n")
+	//		goto again
+	//	}
+	//	fmt.Printf("GC returns: %v\n", err)
+	//	time.Sleep(5 * time.Minute)
+	//}
 }
 func (qm *QManager) Shutdown() {
 	qm.qzmu.Lock()
@@ -336,68 +337,137 @@ func (qm *QManager) Remove(id ID) {
 
 //Restores the queue in-memory states from disk
 func (qm *QManager) recover() error {
-	return qm.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-		hdrprefix := []byte("h/")
-		for it.Seek(hdrprefix); it.ValidForPrefix(hdrprefix); it.Next() {
-			v, err := it.Item().Value()
-			if err != nil {
-				return err
-			}
-			hdr, err := LoadQueueHeader(v)
-			if err != nil {
-				return err
-			}
-			ctx, cancel := context.WithCancel(context.Background())
-			q := &Queue{
-				hdr:       hdr,
-				mgr:       qm,
-				Ctx:       ctx,
-				ctxcancel: cancel,
-			}
-			if q.expired() {
-				q.ctxcancel()
-				q.remove()
-			} else {
-				qm.qz[hdr.ID] = q
-			}
+
+	hdrprefix := []byte("h/")
+	it := qm.db.NewIterator(hdrprefix)
+
+	for it.HasNext() {
+		v := it.Value()
+		hdr, err := LoadQueueHeader(v)
+		if err != nil {
+			it.Close()
+			return errors.Wrap(err, "load queue header")
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		q := &Queue{
+			hdr:       hdr,
+			mgr:       qm,
+			Ctx:       ctx,
+			ctxcancel: cancel,
+		}
+		if q.expired() {
+			q.ctxcancel()
+			q.remove()
+		} else {
+			qm.qz[hdr.ID] = q
 		}
 
-		for _, q := range qm.qz {
-			var largest int64
-			qprefix := []byte(keyQueuePrefix(q.hdr.ID))
-			for it.Seek(qprefix); it.ValidForPrefix(qprefix); it.Next() {
-				k := it.Item().Key()
-				indexString := k[len(qprefix):]
-				index, err := strconv.ParseInt(string(indexString), 10, 64)
-				if err != nil {
-					return err
-				}
-				if index > largest {
-					largest = index
-				}
-				v, err := it.Item().Value()
-				if err != nil {
-					return err
-				}
-				m := &pb.Message{}
-				err = proto.Unmarshal(v, m)
-				if err != nil {
-					return err
-				}
-				q.enqueueCommitted(index, m)
-			}
-			q.hdr.Index = largest + 1
-			q.WriteHeader()
-		}
+		it.Next()
+	}
+	if err := it.Close(); err != nil {
+		return errors.Wrap(err, "load headers")
+	}
 
-		for _, q := range qm.qz {
-			fmt.Printf("recovered queue %s (length=%d)\n", q.ID(), q.length)
+	for _, q := range qm.qz {
+		var largest int64
+		qprefix := []byte(keyQueuePrefix(q.hdr.ID))
+		it := qm.db.NewIterator(qprefix)
+		for it.HasNext() {
+			k := it.Key()
+			indexString := k[len(qprefix):]
+			index, err := strconv.ParseInt(string(indexString), 10, 64)
+			if err != nil {
+				it.Close()
+				return errors.Wrap(err, "parse index")
+			}
+			if index > largest {
+				largest = index
+			}
+			v := it.Value()
+			m := &pb.Message{}
+			err = proto.Unmarshal(v, m)
+			if err != nil {
+				it.Close()
+				return errors.Wrap(err, "get value")
+			}
+			q.enqueueCommitted(index, m)
+			it.Next()
 		}
-		pmNumQueues.Set(float64(len(qm.qz)))
-		return nil
-	})
+		if err := it.Close(); err != nil {
+			return errors.Wrap(err, "enqueue committed")
+		}
+		q.hdr.Index = largest + 1
+		q.WriteHeader()
+	}
+
+	for _, q := range qm.qz {
+		fmt.Printf("recovered queue %s (length=%d)\n", q.ID(), q.length)
+	}
+	pmNumQueues.Set(float64(len(qm.qz)))
+	return nil
+
+	//	return qm.db.View(func(txn *badger.Txn) error {
+	//		it := txn.NewIterator(badger.DefaultIteratorOptions)
+	//		defer it.Close()
+	//		hdrprefix := []byte("h/")
+	//		for it.Seek(hdrprefix); it.ValidForPrefix(hdrprefix); it.Next() {
+	//			v, err := it.Item().Value()
+	//			if err != nil {
+	//				return err
+	//			}
+	//			hdr, err := LoadQueueHeader(v)
+	//			if err != nil {
+	//				return err
+	//			}
+	//			ctx, cancel := context.WithCancel(context.Background())
+	//			q := &Queue{
+	//				hdr:       hdr,
+	//				mgr:       qm,
+	//				Ctx:       ctx,
+	//				ctxcancel: cancel,
+	//			}
+	//			if q.expired() {
+	//				q.ctxcancel()
+	//				q.remove()
+	//			} else {
+	//				qm.qz[hdr.ID] = q
+	//			}
+	//		}
+	//
+	//		for _, q := range qm.qz {
+	//			var largest int64
+	//			qprefix := []byte(keyQueuePrefix(q.hdr.ID))
+	//			for it.Seek(qprefix); it.ValidForPrefix(qprefix); it.Next() {
+	//				k := it.Item().Key()
+	//				indexString := k[len(qprefix):]
+	//				index, err := strconv.ParseInt(string(indexString), 10, 64)
+	//				if err != nil {
+	//					return err
+	//				}
+	//				if index > largest {
+	//					largest = index
+	//				}
+	//				v, err := it.Item().Value()
+	//				if err != nil {
+	//					return err
+	//				}
+	//				m := &pb.Message{}
+	//				err = proto.Unmarshal(v, m)
+	//				if err != nil {
+	//					return err
+	//				}
+	//				q.enqueueCommitted(index, m)
+	//			}
+	//			q.hdr.Index = largest + 1
+	//			q.WriteHeader()
+	//		}
+	//
+	//		for _, q := range qm.qz {
+	//			fmt.Printf("recovered queue %s (length=%d)\n", q.ID(), q.length)
+	//		}
+	//		pmNumQueues.Set(float64(len(qm.qz)))
+	//		return nil
+	//	})
 }
 
 //Runs the periodic background tasks for all queues
@@ -699,25 +769,14 @@ func (q *Queue) GC() error {
 	if len(togc) == 0 {
 		return nil
 	}
-	txn := q.mgr.db.NewTransaction(true)
 	for _, e := range togc {
 		pmCommittedMessages.Add(-1)
-		err := txn.Delete([]byte(e))
-		if err == badger.ErrTxnTooBig {
-			err := txn.Commit(nil)
-			if err != nil {
-				return err
-			}
-			txn = q.mgr.db.NewTransaction(true)
-			err = txn.Delete([]byte(e))
-			if err != nil {
-				return err
-			}
-		} else if err != nil {
-			return err
+		err := q.mgr.db.Delete([]byte(e))
+		if err != nil {
+			fmt.Println("error GC delete:", err)
 		}
 	}
-	return txn.Commit(nil)
+	return nil
 }
 
 //Flush does three things:
@@ -766,10 +825,9 @@ func (q *Queue) Flush() error {
 	//the elements, so there is no danger of the list being corrupted while
 	//we walk it here. The only danger is that another flush modifies
 	//the Next pointer of the tail, so we hold flushmu to prevent that
-	txn := q.mgr.db.NewTransaction(true)
+	//txn := q.mgr.db.NewTransaction(true)
 
 	//Be prepared to break the transaction into smaller ones
-bulkflush:
 	for {
 		it := ucHead
 		for it != nil {
@@ -778,24 +836,14 @@ bulkflush:
 			if err != nil {
 				panic(err)
 			}
-			err = txn.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-			if err == badger.ErrTxnTooBig {
-				err := txn.Commit(nil)
-				if err != nil {
-					return err
-				}
-				txn = q.mgr.db.NewTransaction(true)
-				continue bulkflush
-			} else if err != nil {
-				return err
-			}
+			err = q.mgr.db.Put([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
 			pmCommittedMessages.Add(1)
 			it = nextit
 		}
 		break
 	}
 
-	return txn.Commit(nil)
+	return nil
 }
 
 func (q *Queue) Destroy() {
@@ -822,42 +870,39 @@ func (q *Queue) Drops() int64 {
 func (q *Queue) remove() error {
 	//Remove the header
 	hdrprefix := []byte(keyHeader(q.hdr.ID))
-	q.mgr.db.Update(func(txn *badger.Txn) error {
-		fmt.Printf("deleting key %q\n", hdrprefix)
-		txn.Delete(hdrprefix)
-		return nil
-	})
+	q.mgr.db.Delete(hdrprefix)
+	//q.mgr.db.Update(func(txn *badger.Txn) error {
+	//	fmt.Printf("deleting key %q\n", hdrprefix)
+	//	txn.Delete(hdrprefix)
+	//	return nil
+	//})
 
 	pmQueuedMessages.Add(-float64((q.length + q.uncommittedLength)))
 	pmQueuedBytes.Add(-float64((q.size + q.uncommittedSize)))
 
 	//Transactions are limited in size. Be prepared to break up into lots
 	//of smaller transactions if there are a lot of records to delete
-bulkerase:
+	//bulkerase:
 	for {
-		txn := q.mgr.db.NewTransaction(true)
+		//txn := q.mgr.db.NewTransaction(true)
 		//Required on RPI
 		//opts.ValueLogLoadingMode = options.FileIO
-		opts := badger.DefaultIteratorOptions
-		opts.PrefetchValues = false
-		it := txn.NewIterator(opts)
+		//opts := badger.DefaultIteratorOptions
+		//opts.PrefetchValues = false
 		prefix := []byte(keyQueuePrefix(q.hdr.ID))
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-			err := txn.Delete(it.Item().Key())
-			if err == badger.ErrTxnTooBig {
-				it.Close()
-				err := txn.Commit(nil)
-				if err != nil {
-					return err
-				}
-				continue bulkerase
-			} else if err != nil {
+		it := q.mgr.db.NewIterator(prefix)
+		for it.HasNext() {
+			err := it.Delete(it.Key())
+			if err != nil {
 				it.Close()
 				return err
 			}
 			pmCommittedMessages.Add(-1)
+			it.Next()
 		}
-		it.Close()
+		if err := it.Close(); err != nil {
+			return err
+		}
 		break
 	}
 
@@ -987,10 +1032,10 @@ func (q *Queue) dequeue(refresh bool) *pb.Message {
 
 //Write the header out to the database
 func (q *Queue) writeHeader() error {
-	return q.mgr.db.Update(func(txn *badger.Txn) error {
-		txn.Set([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
-		return nil
-	})
+	//return q.mgr.db.Update(func(txn *badger.Txn) error {
+	return q.mgr.db.Put([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
+	//	return nil
+	//})
 }
 
 func (i *Iterator) Next() {

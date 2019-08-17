@@ -58,7 +58,7 @@
     "protos",
     "skl",
     "table",
-    "y",
+    "y"
   ]
   pruneopts = ""
   revision = "99233d725dbdd26d156c61b2f42ae1671b794656"
@@ -111,7 +111,7 @@
     "ptypes/duration",
     "ptypes/struct",
     "ptypes/timestamp",
-    "ptypes/wrappers",
+    "ptypes/wrappers"
   ]
   pruneopts = ""
   revision = "b5d812f8a3706043e23a9cd5babf2e5423744d30"
@@ -130,7 +130,7 @@
   name = "github.com/google/certificate-transparency-go"
   packages = [
     "asn1",
-    "tls",
+    "tls"
   ]
   pruneopts = ""
   revision = "3629d6846518309d22c16fee15d1007262a459d2"
@@ -156,7 +156,7 @@
     "storage",
     "storage/storagepb",
     "trees",
-    "types",
+    "types"
   ]
   pruneopts = ""
   revision = "f3eaa887163bb4d2ea4b4458cb4e7c5c2f346bc6"
@@ -176,7 +176,7 @@
   packages = [
     "internal",
     "runtime",
-    "utilities",
+    "utilities"
   ]
   pruneopts = ""
   revision = "20f268a412e5b342ebfb1a0eef7c3b7bd6c260ea"
@@ -187,7 +187,7 @@
   name = "github.com/gxed/hashland"
   packages = [
     "keccakpg",
-    "murmur3",
+    "murmur3"
   ]
   pruneopts = ""
   revision = "a72cc0875a1e95edd309d3134bc7c11bf2d7360b"
@@ -218,8 +218,7 @@
   revision = "00c41edb4634c480e27d634cd74c5989b1f746d8"
 
 [[projects]]
-  branch = "feature-jedi-delegation"
-  digest = "1:6f5db3c249a7507e6c2d425ee890b5994cb282aedf0dce932028b0f23301cf2c"
+  digest = "1:3bfa74a0ff1048393944023df5c8d1acebad10c3cf16456271ecbe6d5d8e00db"
   name = "github.com/immesys/wave"
   packages = [
     "consts",
@@ -237,11 +236,10 @@
     "storage/simplehttp",
     "storage/vldmstorage3/vldmpb",
     "waved",
-    "wve",
+    "wve"
   ]
   pruneopts = ""
-  revision = "3247c9c9e33a94370507b0399f6160f2058ea7a4"
-  source = "github.com/samkumar/wave"
+  revision = "ffc480625f366be4a08b3be144f43f6ff35a85e3"
 
 [[projects]]
   digest = "1:63722a4b1e1717be7b98fc686e0b30d5e7f734b9e93d7dee86293b6deab7ea28"
@@ -284,7 +282,7 @@
     "printer",
     "reg",
     "src",
-    "x86",
+    "x86"
   ]
   pruneopts = ""
   revision = "138eaf8dc34d1c265aab931e3541149d667426ca"
@@ -343,7 +341,7 @@
   packages = [
     "prometheus",
     "prometheus/internal",
-    "prometheus/promhttp",
+    "prometheus/promhttp"
   ]
   pruneopts = ""
   revision = "505eaef017263e299324067d40ca2c48f6a2cf50"
@@ -363,7 +361,7 @@
   packages = [
     "expfmt",
     "internal/bitbucket.org/ww/goautoneg",
-    "model",
+    "model"
   ]
   pruneopts = ""
   revision = "cfeb6f9992ffa54aaa4f2170ade4067ee478b250"
@@ -378,19 +376,11 @@
   revision = "ea9eea63887261e4d8ed8315f4078e88d540c725"
 
 [[projects]]
-  branch = "master"
-  digest = "1:7f8a9fb1e1be04d6f0a20386d3de38ffedba83c09b0eea557867cbafbb885c33"
-  name = "github.com/samkumar/reqcache"
-  packages = ["."]
-  pruneopts = ""
-  revision = "7b5ae3605bad69a7d84f20856abe27925d22decf"
-
-[[projects]]
   digest = "1:381bcbeb112a51493d9d998bbba207a529c73dbb49b3fd789e48c63fac1f192c"
   name = "github.com/stretchr/testify"
   packages = [
     "assert",
-    "require",
+    "require"
   ]
   pruneopts = ""
   revision = "ffdc059bfe9ce6a4e144ba849dbedead332c6053"
@@ -412,10 +402,18 @@
     "leveldb/opt",
     "leveldb/storage",
     "leveldb/table",
-    "leveldb/util",
+    "leveldb/util"
   ]
   pruneopts = ""
   revision = "c3a204f8e96543bb0cc090385c001078f184fc46"
+
+[[projects]]
+  branch = "master"
+  digest = "1:544d55edc3add26a6520c1054b47dd70c8db1cd3c6525fbcf29ca7512342cb94"
+  name = "github.com/tecbot/gorocksdb"
+  packages = ["."]
+  pruneopts = ""
+  revision = "162552197222a834c6857385ae890e4decdd5049"
 
 [[projects]]
   branch = "master"
@@ -426,18 +424,10 @@
     "lang/go/cryptutils",
     "lang/go/internal",
     "lang/go/lqibe",
-    "lang/go/wkdibe",
+    "lang/go/wkdibe"
   ]
   pruneopts = ""
   revision = "4c3d16d2a74fea69e1e9693dcc5353e9889757e5"
-
-[[projects]]
-  branch = "master"
-  digest = "1:7f6264fd0fbad3c9b5c8cc9b43208c30eca1d6aadb6d13d08d4f3843765b669f"
-  name = "github.com/ucbrise/jedi-protocol-go"
-  packages = ["."]
-  pruneopts = ""
-  revision = "fb4cd35aa58ccb3bb0ca271f1684213c9292c750"
 
 [[projects]]
   digest = "1:e85837cb04b78f61688c6eba93ea9d14f60d611e2aaf8319999b1a60d2dafbfa"
@@ -455,7 +445,7 @@
     "internal",
     "trace",
     "trace/internal",
-    "trace/tracestate",
+    "trace/tracestate"
   ]
   pruneopts = ""
   revision = "46618d076d80f4eab85adbcb3be9a370be1dc4e0"
@@ -471,7 +461,7 @@
     "ed25519",
     "ed25519/internal/edwards25519",
     "pbkdf2",
-    "sha3",
+    "sha3"
   ]
   pruneopts = ""
   revision = "a5d413f7728c81fb97d96a2b722368945f651e78"
@@ -487,7 +477,7 @@
     "http2/hpack",
     "idna",
     "internal/timeseries",
-    "trace",
+    "trace"
   ]
   pruneopts = ""
   revision = "b630fd6fe46bcfc98f989005d8b8ec1400e60a6e"
@@ -498,7 +488,7 @@
   name = "golang.org/x/sys"
   packages = [
     "cpu",
-    "unix",
+    "unix"
   ]
   pruneopts = ""
   revision = "81d4e9dc473e5e8c933f2aaeba2a3d81efb9aed2"
@@ -520,7 +510,7 @@
     "unicode/bidi",
     "unicode/cldr",
     "unicode/norm",
-    "unicode/rangetable",
+    "unicode/rangetable"
   ]
   pruneopts = ""
   revision = "f21a4dfb5e38f5895301dc265a8def02365cc3d0"
@@ -539,7 +529,7 @@
     "go/types/typeutil",
     "internal/fastwalk",
     "internal/gopathwalk",
-    "internal/semver",
+    "internal/semver"
   ]
   pruneopts = ""
   revision = "1aadbdfdbb7ad749c12012e6b5ea3eecd3d4257b"
@@ -552,7 +542,7 @@
     "googleapis/api/annotations",
     "googleapis/api/httpbody",
     "googleapis/rpc/status",
-    "protobuf/field_mask",
+    "protobuf/field_mask"
   ]
   pruneopts = ""
   revision = "f467c93bbac2133ff463e1f93d18d8f9f3f04451"
@@ -592,7 +582,7 @@
     "resolver/passthrough",
     "stats",
     "status",
-    "tap",
+    "tap"
   ]
   pruneopts = ""
   revision = "3507fb8e1a5ad030303c106fef3a47c9fdad16ad"
@@ -625,14 +615,14 @@
     "github.com/prometheus/client_golang/prometheus",
     "github.com/prometheus/client_golang/prometheus/promhttp",
     "github.com/stretchr/testify/require",
-    "github.com/ucbrise/jedi-protocol-go",
+    "github.com/tecbot/gorocksdb",
     "golang.org/x/crypto/sha3",
     "golang.org/x/net/context",
     "google.golang.org/genproto/googleapis/api/annotations",
     "google.golang.org/grpc",
     "google.golang.org/grpc/credentials",
     "google.golang.org/grpc/encoding",
-    "google.golang.org/grpc/encoding/gzip",
+    "google.golang.org/grpc/encoding/gzip"
   ]
   solver-name = "gps-cdcl"
   solver-version = 1

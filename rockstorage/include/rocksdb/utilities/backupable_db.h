@@ -10,7 +10,11 @@
 #pragma once
 #ifndef ROCKSDB_LITE
 
-#include <cinttypes>
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif
+
+#include <inttypes.h>
 #include <functional>
 #include <map>
 #include <string>

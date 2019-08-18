@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
-	"os"
+	//	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -215,10 +215,10 @@ func LoadQueueHeader(ser []byte) (*QueueHeader, error) {
 //Create a new queue manager with the given configuration
 func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 	//Make the queue directory
-	err := os.MkdirAll(cfg.QueueDataStore, 0755)
-	if err != nil {
-		return nil, err
-	}
+	//err := os.MkdirAll(cfg.QueueDataStore, 0755)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	//Open database
 	//opts := badger.DefaultOptions
@@ -238,7 +238,7 @@ func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 		ctxcancel: cancel,
 		cfg:       *cfg,
 	}
-	err = rv.recover()
+	err := rv.recover()
 	if err != nil {
 		return nil, err
 	}
@@ -846,7 +846,9 @@ func (q *Queue) Flush() error {
 			panic(err)
 		}
 		//wb.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-		rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
+		if err := rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin); err != nil {
+			return err
+		}
 		pmCommittedMessages.Add(1)
 		it = nextit
 	}
@@ -1079,8 +1081,8 @@ func (q *Queue) dequeue(refresh bool) *pb.Message {
 
 //Write the header out to the database
 func (q *Queue) writeHeader() error {
-	rocksdb.QueueSet([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
-	return nil
+	return rocksdb.QueueSet([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
+	//return nil
 	//return q.mgr.db.Update(func(txn *badger.Txn) error {
 	//	txn.Set([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
 	//	return nil

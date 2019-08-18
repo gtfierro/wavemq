@@ -2,8 +2,8 @@
 #include <string>
 #include <iostream>
 #include "rocksdb/db.h"
-//#include "rocksdb/utilities/transaction.h"
-//#include "rocksdb/utilities/transaction_db.h"
+#include "rocksdb/utilities/transaction.h"
+#include "rocksdb/utilities/transaction_db.h"
 
 #include <stdlib.h>
 
@@ -11,9 +11,10 @@ using namespace rocksdb;
 using std::cerr;
 using std::endl;
 
-static DB* db;
+//static DB* db;
+static TransactionDB* db;
 //static TransactionDB* db;
-static ColumnFamilyHandle* cf_queue;
+//static ColumnFamilyHandle* cf_queue;
 static WriteOptions write_opts;
 static ReadOptions read_opts;
 //TransactionOptions txn_opts;
@@ -23,7 +24,7 @@ extern "C" {
     #include "iface.h"
 
     void init(std::string dbname, size_t spinning_metal) {
-        std::vector<ColumnFamilyDescriptor> cfs;
+        //std::vector<ColumnFamilyDescriptor> cfs;
 
         //write_opts.sync = true;
 
@@ -31,10 +32,9 @@ extern "C" {
         opts.IncreaseParallelism();
         opts.OptimizeLevelStyleCompaction();
         opts.create_if_missing = true;
-        opts.create_missing_column_families = true;
-        opts.enable_pipelined_write=true;
-       // TransactionDBOptions txn_db_options;
-        cerr << 1;
+        //opts.create_missing_column_families = true;
+        //opts.enable_pipelined_write=true;
+        TransactionDBOptions txn_db_options;
 
         if (spinning_metal > 0) {
             cerr << "Optimizing for spinning metal" << endl;
@@ -43,21 +43,21 @@ extern "C" {
             opts.skip_stats_update_on_db_open = true;
         }
 
-        cerr << 2;
-        cfs.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
-        cfs.push_back(ColumnFamilyDescriptor("CF_QUEUE", ColumnFamilyOptions()));
-        cerr << 3;
+        //cfs.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+        //cfs.push_back(ColumnFamilyDescriptor("CF_QUEUE", ColumnFamilyOptions()));
 
         //Status s = TransactionDB::Open(opts, txn_db_options, dbname, cfs, &handles, &db);
-        Status s = DB::Open(opts, dbname, cfs, &handles, &db);
+        std::string dbdir = "/tmp/wavemq_rocksdb_test";
+        Status s = TransactionDB::Open(opts, txn_db_options, dbdir, &db);//cfs, &handles, &db);
         cerr << 4;
         if (!s.ok()) {
             cerr << "Open DB: " << s.ToString() << endl;
         }
         cerr << 5;
         assert(s.ok());
+        printf("(good?) db ptr: %p\n", (void*)db);
         cerr << 6;
-        cf_queue = handles[1];
+        //cf_queue = handles[1];
         cerr << 7;
     }
 
@@ -101,7 +101,7 @@ extern "C" {
         ReadOptions ro;
         cerr << "start iterator" << endl;
         //ro.total_order_seek=true;
-        auto it = db->NewIterator(ro, cf_queue);
+        auto it = db->NewIterator(ro);//, cf_queue);
         it->Seek(Slice(pfx, pfxlen));
         *state = it;
         if (!it->Valid() || !it->key().starts_with(Slice(pfx, pfxlen))) {
@@ -148,26 +148,43 @@ extern "C" {
         return _count;
     }
 
-    void queue_set(const char *key, size_t keylen, const char *value, size_t valuelen) {
-        Status s = db->Put(write_opts, cf_queue, Slice(key, keylen), Slice(value, valuelen));
+    void queue_set(const char *key, size_t keylen, const char *value, size_t valuelen, char** error, size_t* errorlen) {
+        Status s = db->Put(write_opts, Slice(key, keylen), Slice(value, valuelen));
         if (!s.ok()) {
+            printf("db ptr: %p\n", (void*) db);
             cerr << "Queue Set: " << s.ToString() << endl;
+            // copy error value out
+            auto e = s.ToString();
+            *error = (char*) malloc(e.size());
+            *errorlen = e.size();
+            memcpy(*error, e.data(), e.size());
+        } else {
+            *errorlen = 0;
         }
         assert(s.ok());
     }
 
     void queue_delete(const char *key, size_t keylen) {
-        Status s = db->Delete(write_opts, cf_queue, Slice(key, keylen));
+        Transaction* txn = db->BeginTransaction(write_opts);
+        assert(txn);
+        cerr << "begin del" << endl;
+        Status s = txn->Delete(Slice(key, keylen));
+        //Status s = db->Delete(write_opts, Slice(key, keylen));
         if (!s.ok()) {
             cerr << "Queue Delete: " << s.ToString() << endl;
+            return;
         }
+        cerr << "commit" << endl;
+        s = txn->Commit();
         assert(s.ok());
+        delete txn;
     }
 
     char* queue_get(const char *key, size_t keylen, size_t *valuelen) {
+        printf("db ptr: %p\n", (void*) db);
         std::string value;
         char *rv;
-        Status s = db->Get(read_opts, cf_queue, Slice(key, keylen), &value);
+        Status s = db->Get(read_opts, Slice(key, keylen), &value);
         if (s.IsNotFound()) return NULL;
         if (!s.ok()) {
             cerr << "queue get: " << s.ToString() << endl;
@@ -184,8 +201,9 @@ extern "C" {
         init(dbname, spinning_metal);
     }
 
-    void close() {
+    void close_db() {
         //delete cf_queue;
+        printf("DELETING DB (rocksdb)\n");
         delete db;
     }
 }

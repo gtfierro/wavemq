@@ -28,7 +28,6 @@
 #include <atomic>
 #include <memory>
 #include <string>
-#include <vector>
 #include "rocksdb/status.h"
 #include "rocksdb/write_batch_base.h"
 
@@ -61,7 +60,6 @@ struct SavePoint {
 class WriteBatch : public WriteBatchBase {
  public:
   explicit WriteBatch(size_t reserved_bytes = 0, size_t max_bytes = 0);
-  explicit WriteBatch(size_t reserved_bytes, size_t max_bytes, size_t ts_sz);
   ~WriteBatch() override;
 
   using WriteBatchBase::Put;
@@ -271,7 +269,7 @@ class WriteBatch : public WriteBatchBase {
     virtual bool Continue();
 
    protected:
-    friend class WriteBatchInternal;
+    friend class WriteBatch;
     virtual bool WriteAfterCommit() const { return true; }
     virtual bool WriteBeforePrepare() const { return false; }
   };
@@ -312,12 +310,6 @@ class WriteBatch : public WriteBatchBase {
 
   // Returns trie if MarkRollback will be called during Iterate
   bool HasRollback() const;
-
-  // Assign timestamp to write batch
-  Status AssignTimestamp(const Slice& ts);
-
-  // Assign timestamps to write batch
-  Status AssignTimestamps(const std::vector<Slice>& ts_list);
 
   using WriteBatchBase::GetWriteBatch;
   WriteBatch* GetWriteBatch() override { return this; }
@@ -369,7 +361,6 @@ class WriteBatch : public WriteBatchBase {
 
  protected:
   std::string rep_;  // See comment in write_batch.cc for the format of rep_
-  const size_t timestamp_size_;
 
   // Intentionally copyable
 };

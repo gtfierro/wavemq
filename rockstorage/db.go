@@ -1,7 +1,7 @@
 package rocksdb
 
 // #cgo CXXFLAGS: -I./include/ -std=gnu++11
-// #cgo LDFLAGS: -L./lib -lrocksdb -ldl -lpthread -lrt -lsnappy -lgflags -lz -lbz2 -llz4 -lzstd
+// #cgo LDFLAGS: -L./lib -lrocksdb_debug -ldl -lrt -lsnappy -lgflags -lz -lbz2 -llz4 -lzstd
 // #include "iface.h"
 import "C"
 import (
@@ -12,8 +12,32 @@ import (
 )
 
 var didInit bool = false
+var noop = true
 
 var ErrObjNotFound = errors.New("Object Not Found")
+
+type RocksdbErr struct {
+	message string
+}
+
+func (e *RocksdbErr) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.message
+}
+
+func GetError(errstr *C.char, errlen C.size_t) error {
+	var msg = make([]byte, errlen)
+	if errlen > 0 {
+		C.memcpy(unsafe.Pointer(&msg[0]), unsafe.Pointer(errstr), errlen)
+		C.free(unsafe.Pointer(errstr))
+		return &RocksdbErr{
+			message: fmt.Sprintf("%s", string(msg)),
+		}
+	}
+	return nil
+}
 
 func Initialize(dbname string, spinning_metal bool) {
 	if didInit {
@@ -29,10 +53,17 @@ func Initialize(dbname string, spinning_metal bool) {
 }
 
 func Close() {
-	C.close()
+	if noop {
+		return
+	}
+	C.close_db()
 }
 
 func QueueGet(key []byte) ([]byte, error) {
+	fmt.Println("queue get")
+	//if noop {
+	//	return []byte{}, nil
+	//}
 	var ln C.size_t
 	val := C.queue_get((*C.char)(unsafe.Pointer(&key[0])),
 		(C.size_t)(len(key)),
@@ -46,16 +77,33 @@ func QueueGet(key []byte) ([]byte, error) {
 	return rv, nil
 }
 
-func QueueSet(key, value []byte) {
+func QueueSet(key, value []byte) error {
+	//fmt.Println("queue set")
+	//if noop {
+	//	return nil
+	//}
+	var errstr *C.char
+	var errlen C.size_t
 	C.queue_set((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)),
-		(*C.char)(unsafe.Pointer(&value[0])), (C.size_t)(len(value)))
+		(*C.char)(unsafe.Pointer(&value[0])), (C.size_t)(len(value)),
+		&errstr, &errlen)
+	//fmt.Printf("errlen: %d\n", int(errlen))
+	err := GetError(errstr, errlen)
+	//fmt.Printf("got error: %v\n", err)
+	return err
 }
 
 func QueueDelete(key []byte) {
+	//if noop {
+	//	return
+	//}
 	C.queue_delete((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)))
 }
 
 func QueueDeletePrefix(key []byte) int {
+	if noop {
+		return 0
+	}
 	val := C.queue_delete_prefix((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)))
 	return int(val)
 }
@@ -75,6 +123,9 @@ func NewIterator(prefix []byte) *Iterator {
 		value    *C.char
 		valuelen C.size_t
 	)
+	if noop {
+		return nil
+	}
 	it := Iterator{prefix: prefix}
 	C.queue_it_start(&it.state, (*C.char)(unsafe.Pointer(&prefix[0])), (C.size_t)(len(prefix)), &key, &keylen, &value, &valuelen)
 	runtime.SetFinalizer(&it, func(it *Iterator) {
@@ -105,6 +156,9 @@ func (it *Iterator) Next() {
 		value    *C.char
 		valuelen C.size_t
 	)
+	if noop {
+		return
+	}
 	C.queue_it_next(it.state, (*C.char)(unsafe.Pointer(&it.prefix[0])), (C.size_t)(len(it.prefix)), &key, &keylen, &value, &valuelen)
 	if keylen == 0 && valuelen == 0 {
 		it.valid = false
@@ -114,17 +168,27 @@ func (it *Iterator) Next() {
 	it.current_value = make([]byte, valuelen)
 	C.memcpy(unsafe.Pointer(&it.current_key[0]), unsafe.Pointer(key), keylen)
 	C.memcpy(unsafe.Pointer(&it.current_value[0]), unsafe.Pointer(value), valuelen)
+	//TODO: free key/value ?
 	it.valid = true
 }
 
 func (it *Iterator) HasNext() bool {
+	if noop {
+		return false
+	}
 	return it.valid
 }
 
 func (it *Iterator) Key() []byte {
+	if noop {
+		return nil
+	}
 	return it.current_key
 }
 func (it *Iterator) Value() []byte {
+	if noop {
+		return nil
+	}
 	return it.current_value
 }
 

@@ -58,9 +58,7 @@ class Status {
     kBusy = 11,
     kExpired = 12,
     kTryAgain = 13,
-    kCompactionTooLarge = 14,
-    kColumnFamilyDropped = 15,
-    kMaxCode
+    kCompactionTooLarge = 14
   };
 
   Code code() const { return code_; }
@@ -76,7 +74,6 @@ class Status {
     kMemoryLimit = 7,
     kSpaceLimit = 8,
     kPathNotFound = 9,
-    KMergeOperandsInsufficientCapacity = 10,
     kMaxSubCode
   };
 
@@ -187,15 +184,6 @@ class Status {
     return Status(kCompactionTooLarge, msg, msg2);
   }
 
-  static Status ColumnFamilyDropped(SubCode msg = kNone) {
-    return Status(kColumnFamilyDropped, msg);
-  }
-
-  static Status ColumnFamilyDropped(const Slice& msg,
-                                    const Slice& msg2 = Slice()) {
-    return Status(kColumnFamilyDropped, msg, msg2);
-  }
-
   static Status NoSpace() { return Status(kIOError, kNoSpace); }
   static Status NoSpace(const Slice& msg, const Slice& msg2 = Slice()) {
     return Status(kIOError, kNoSpace, msg, msg2);
@@ -267,9 +255,6 @@ class Status {
 
   // Returns true iff the status indicates the proposed compaction is too large
   bool IsCompactionTooLarge() const { return code() == kCompactionTooLarge; }
-
-  // Returns true iff the status indicates Column Family Dropped
-  bool IsColumnFamilyDropped() const { return code() == kColumnFamilyDropped; }
 
   // Returns true iff the status indicates a NoSpace error
   // This is caused by an I/O error returning the specific "out of space"

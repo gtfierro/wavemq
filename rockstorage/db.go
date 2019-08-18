@@ -93,11 +93,14 @@ func QueueSet(key, value []byte) error {
 	return err
 }
 
-func QueueDelete(key []byte) {
+func QueueDelete(key []byte) error {
 	//if noop {
 	//	return
 	//}
-	C.queue_delete((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)))
+	var errstr *C.char
+	var errlen C.size_t
+	C.queue_delete((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)), &errstr, &errlen)
+	return GetError(errstr, errlen)
 }
 
 func QueueDeletePrefix(key []byte) int {

@@ -164,7 +164,7 @@ extern "C" {
         assert(s.ok());
     }
 
-    void queue_delete(const char *key, size_t keylen) {
+    void queue_delete(const char *key, size_t keylen, char** error, size_t* errorlen) {
         Transaction* txn = db->BeginTransaction(write_opts);
         assert(txn);
         cerr << "begin del" << endl;
@@ -172,11 +172,25 @@ extern "C" {
         //Status s = db->Delete(write_opts, Slice(key, keylen));
         if (!s.ok()) {
             cerr << "Queue Delete: " << s.ToString() << endl;
+            auto e = s.ToString();
+            *error = (char*) malloc(e.size());
+            *errorlen = e.size();
+            memcpy(*error, e.data(), e.size());
+            delete txn;
             return;
         }
         cerr << "commit" << endl;
         s = txn->Commit();
+        if (!s.ok()) {
+            auto e = s.ToString();
+            *error = (char*) malloc(e.size());
+            *errorlen = e.size();
+            memcpy(*error, e.data(), e.size());
+            delete txn;
+            return;
+        }
         assert(s.ok());
+        *errorlen = 0;
         delete txn;
     }
 

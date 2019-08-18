@@ -766,7 +766,9 @@ func (q *Queue) GC() error {
 	//txn := q.mgr.db.NewTransaction(true)
 	for _, e := range togc {
 		pmCommittedMessages.Add(-1)
-		rocksdb.QueueDelete([]byte(e))
+		if err := rocksdb.QueueDelete([]byte(e)); err != nil {
+			return err
+		}
 		//err := txn.Delete([]byte(e))
 		//if err == badger.ErrTxnTooBig {
 		//	err := txn.Commit(nil)
@@ -908,7 +910,9 @@ func (q *Queue) Drops() int64 {
 func (q *Queue) remove() error {
 	//Remove the header
 	hdrprefix := []byte(keyHeader(q.hdr.ID))
-	rocksdb.QueueDelete(hdrprefix)
+	if err := rocksdb.QueueDelete(hdrprefix); err != nil {
+		return err
+	}
 	//q.mgr.db.Update(func(txn *badger.Txn) error {
 	//	fmt.Printf("deleting key %q\n", hdrprefix)
 	//	txn.Delete(hdrprefix)

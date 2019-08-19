@@ -1,7 +1,7 @@
 package rocksdb
 
 // #cgo CXXFLAGS: -I./include/ -std=gnu++11
-// #cgo LDFLAGS: -L./lib -lrocksdb_debug -ldl -lrt -lsnappy -lgflags -lz -lbz2 -llz4 -lzstd
+// #cgo LDFLAGS: -L./lib -lrocksdb -ldl -lrt -lsnappy -lgflags -lz -lbz2 -llz4 -lzstd
 // #include "iface.h"
 import "C"
 import (
@@ -104,9 +104,9 @@ func QueueDelete(key []byte) error {
 }
 
 func QueueDeletePrefix(key []byte) int {
-	if noop {
-		return 0
-	}
+	//if noop {
+	//	return 0
+	//}
 	val := C.queue_delete_prefix((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)))
 	return int(val)
 }
@@ -126,9 +126,9 @@ func NewIterator(prefix []byte) *Iterator {
 		value    *C.char
 		valuelen C.size_t
 	)
-	if noop {
-		return nil
-	}
+	//if noop {
+	//	return nil
+	//}
 	it := Iterator{prefix: prefix}
 	C.queue_it_start(&it.state, (*C.char)(unsafe.Pointer(&prefix[0])), (C.size_t)(len(prefix)), &key, &keylen, &value, &valuelen)
 	runtime.SetFinalizer(&it, func(it *Iterator) {
@@ -159,9 +159,9 @@ func (it *Iterator) Next() {
 		value    *C.char
 		valuelen C.size_t
 	)
-	if noop {
-		return
-	}
+	//if noop {
+	//	return
+	//}
 	C.queue_it_next(it.state, (*C.char)(unsafe.Pointer(&it.prefix[0])), (C.size_t)(len(it.prefix)), &key, &keylen, &value, &valuelen)
 	if keylen == 0 && valuelen == 0 {
 		it.valid = false
@@ -176,22 +176,22 @@ func (it *Iterator) Next() {
 }
 
 func (it *Iterator) HasNext() bool {
-	if noop {
-		return false
-	}
+	//if noop {
+	//	return false
+	//}
 	return it.valid
 }
 
 func (it *Iterator) Key() []byte {
-	if noop {
-		return nil
-	}
+	//if noop {
+	//	return nil
+	//}
 	return it.current_key
 }
 func (it *Iterator) Value() []byte {
-	if noop {
-		return nil
-	}
+	//if noop {
+	//	return nil
+	//}
 	return it.current_value
 }
 

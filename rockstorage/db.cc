@@ -47,8 +47,8 @@ extern "C" {
         //cfs.push_back(ColumnFamilyDescriptor("CF_QUEUE", ColumnFamilyOptions()));
 
         //Status s = TransactionDB::Open(opts, txn_db_options, dbname, cfs, &handles, &db);
-        std::string dbdir = "/tmp/wavemq_rocksdb_test";
-        Status s = OptimisticTransactionDB::Open(opts, dbdir, &db);//cfs, &handles, &db);
+        //std::string dbdir = "/tmp/wavemq_rocksdb_test";
+        Status s = OptimisticTransactionDB::Open(opts, dbname, &db);//cfs, &handles, &db);
         cerr << 4;
         if (!s.ok()) {
             cerr << "Open DB: " << s.ToString() << endl;
@@ -139,11 +139,29 @@ extern "C" {
 
     size_t queue_delete_prefix(const char *pfx, size_t pfxlen) {
         size_t _count = 0;
-        auto it = db->NewIterator(ReadOptions());
-        Slice prefix = Slice(pfx, pfxlen);
-        for (it->Seek(prefix); it->Valid() && it->key().starts_with(prefix); it->Next()) {
-              db->Delete(write_opts, it->key());
-              _count++;
+        int tries = 3;
+        while (tries > 0) {
+            Transaction* txn = db->BeginTransaction(write_opts);
+            assert(txn);
+            auto it = txn->GetIterator(ReadOptions());
+            Slice prefix = Slice(pfx, pfxlen);
+            for (it->Seek(prefix); it->Valid() && it->key().starts_with(prefix); it->Next()) {
+                  Status s = txn->Delete(it->key());
+                  assert(s.ok());
+                  _count++;
+            }
+            delete it;
+            Status s = txn->Commit();
+            if (!s.ok()) {
+                cerr << "delete pfx failed: " << s.ToString() << " but retrying..." << endl;
+                tries --;
+                txn->Rollback();   
+                delete txn;
+                continue;
+            }
+            assert(s.ok());
+            delete txn;
+            return _count;
         }
         return _count;
     }
@@ -167,7 +185,7 @@ extern "C" {
     void queue_delete(const char *key, size_t keylen, char** error, size_t* errorlen) {
         Transaction* txn = db->BeginTransaction(write_opts);
         assert(txn);
-        cerr << "begin del" << endl;
+        //cerr << "begin del" << endl;
         Status s = txn->Delete(Slice(key, keylen));
         //Status s = db->Delete(write_opts, Slice(key, keylen));
         if (!s.ok()) {
@@ -179,7 +197,7 @@ extern "C" {
             delete txn;
             return;
         }
-        cerr << "commit" << endl;
+        //cerr << "commit" << endl;
         s = txn->Commit();
         if (!s.ok()) {
             auto e = s.ToString();
@@ -195,7 +213,7 @@ extern "C" {
     }
 
     char* queue_get(const char *key, size_t keylen, size_t *valuelen) {
-        printf("db ptr: %p\n", (void*) db);
+        //printf("db ptr: %p\n", (void*) db);
         std::string value;
         char *rv;
         Status s = db->Get(read_opts, Slice(key, keylen), &value);

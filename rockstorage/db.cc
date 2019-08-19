@@ -139,7 +139,7 @@ extern "C" {
 
     size_t queue_delete_prefix(const char *pfx, size_t pfxlen) {
         size_t _count = 0;
-        int tries = 3;
+        int tries = 10;
         while (tries > 0) {
             Transaction* txn = db->BeginTransaction(write_opts);
             assert(txn);

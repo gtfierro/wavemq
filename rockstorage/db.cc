@@ -3,7 +3,7 @@
 #include <iostream>
 #include "rocksdb/db.h"
 #include "rocksdb/utilities/transaction.h"
-#include "rocksdb/utilities/transaction_db.h"
+#include "rocksdb/utilities/optimistic_transaction_db.h"
 
 #include <stdlib.h>
 
@@ -12,7 +12,7 @@ using std::cerr;
 using std::endl;
 
 //static DB* db;
-static TransactionDB* db;
+static OptimisticTransactionDB* db;
 //static TransactionDB* db;
 //static ColumnFamilyHandle* cf_queue;
 static WriteOptions write_opts;
@@ -34,7 +34,7 @@ extern "C" {
         opts.create_if_missing = true;
         //opts.create_missing_column_families = true;
         //opts.enable_pipelined_write=true;
-        TransactionDBOptions txn_db_options;
+        //TransactionDBOptions txn_db_options;
 
         if (spinning_metal > 0) {
             cerr << "Optimizing for spinning metal" << endl;
@@ -48,7 +48,7 @@ extern "C" {
 
         //Status s = TransactionDB::Open(opts, txn_db_options, dbname, cfs, &handles, &db);
         std::string dbdir = "/tmp/wavemq_rocksdb_test";
-        Status s = TransactionDB::Open(opts, txn_db_options, dbdir, &db);//cfs, &handles, &db);
+        Status s = OptimisticTransactionDB::Open(opts, dbdir, &db);//cfs, &handles, &db);
         cerr << 4;
         if (!s.ok()) {
             cerr << "Open DB: " << s.ToString() << endl;

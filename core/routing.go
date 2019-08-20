@@ -20,6 +20,8 @@ import (
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/grpc"
 
+	rocksdb "github.com/immesys/wavemq/rockstorage"
+
 	opentracing "github.com/opentracing/opentracing-go"
 )
 
@@ -281,6 +283,7 @@ func NewTerminus(qm *QManager, am *AuthModule, cfg *RoutingConfig) (*Terminus, e
 	opts.Dir = cfg.PersistDataStore
 	opts.ValueDir = cfg.PersistDataStore
 	db, err := badger.Open(opts)
+	rocksdb.Initialize(cfg.PersistDataStore, false)
 	if err != nil {
 		return nil, err
 	}

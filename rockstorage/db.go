@@ -149,12 +149,10 @@ func NewIterator(col Column, prefix []byte) *Iterator {
 		value    *C.char
 		valuelen C.size_t
 	)
-	//if noop {
-	//	return nil
-	//}
 	it := Iterator{prefix: prefix}
 	C.db_it_start(C.int(col), &it.state, (*C.char)(unsafe.Pointer(&prefix[0])), (C.size_t)(len(prefix)), &key, &keylen, &value, &valuelen)
 	runtime.SetFinalizer(&it, func(it *Iterator) {
+		// from bw2 rocks
 		//I have no idea how long rocks will take to do this. I suspect
 		//it involves deleting a snapshot. Lets not block the finalizer
 		//goroutine
@@ -182,9 +180,6 @@ func (it *Iterator) Next() {
 		value    *C.char
 		valuelen C.size_t
 	)
-	//if noop {
-	//	return
-	//}
 	C.db_it_next(it.state, (*C.char)(unsafe.Pointer(&it.prefix[0])), (C.size_t)(len(it.prefix)), &key, &keylen, &value, &valuelen)
 	if keylen == 0 && valuelen == 0 {
 		it.valid = false

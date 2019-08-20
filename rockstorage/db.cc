@@ -15,8 +15,6 @@ using std::endl;
 //static DB* db;
 static OptimisticTransactionDB* db;
 //static TransactionDB* db;
-static ColumnFamilyHandle* cf_queue;
-static ColumnFamilyHandle* cf_persist;
 static WriteOptions write_opts;
 static ReadOptions read_opts;
 //TransactionOptions txn_opts;
@@ -69,29 +67,14 @@ extern "C" {
         assert(s.ok());
         printf("(good?) db ptr: %p\n", (void*)db);
         cerr << 6;
-        cf_queue = handles[1];
-        cf_persist = handles[2];
         cerr << 7;
     }
 
-
-    void queue_wb_start(void** state) {
-    }
-
-    void queue_wb_set(void* state, char* key, size_t keylen, char* value, size_t valuelen) {
-    }
-
-    void queue_wb_done(void* state) {
-    }
-
-    void queue_wb_delete(void* state) {
-    }
-
-    void queue_it_start(void** state, const char *pfx, size_t pfxlen, char** key, size_t* keylen, char** value, size_t* valuelen) {
+    void db_it_start(int col, void** state, const char *pfx, size_t pfxlen, char** key, size_t* keylen, char** value, size_t* valuelen) {
         ReadOptions ro;
         cerr << "start iterator" << endl;
         //ro.total_order_seek=true;
-        auto it = db->NewIterator(ro, cf_queue);
+        auto it = db->NewIterator(ro, handles[col]);
         it->Seek(Slice(pfx, pfxlen));
         *state = it;
         if (!it->Valid() || !it->key().starts_with(Slice(pfx, pfxlen))) {
@@ -105,7 +88,7 @@ extern "C" {
         }
     }
 
-    void queue_it_next(void* state, const char *pfx, size_t pfxlen, char** key, size_t* keylen, char** value, size_t* valuelen) {
+    void db_it_next(void* state, const char *pfx, size_t pfxlen, char** key, size_t* keylen, char** value, size_t* valuelen) {
         Iterator *it = (Iterator*) state;
         it->Next();
         if (!it->Valid() || !it->key().starts_with(Slice(pfx, pfxlen))) {
@@ -119,21 +102,21 @@ extern "C" {
         }
     }
 
-    void queue_it_delete(void* state) {
+    void db_it_delete(void* state) {
         delete (Iterator*)state;
         cerr << "delete iterator" << endl;
     }
 
-    size_t queue_delete_prefix(const char *pfx, size_t pfxlen) {
+    size_t db_delete_prefix(int col, const char *pfx, size_t pfxlen) {
         size_t _count = 0;
         int tries = 10;
         while (tries > 0) {
             Transaction* txn = db->BeginTransaction(write_opts);
             assert(txn);
-            auto it = txn->GetIterator(ReadOptions());
+            auto it = txn->GetIterator(ReadOptions(), handles[col]);
             Slice prefix = Slice(pfx, pfxlen);
             for (it->Seek(prefix); it->Valid() && it->key().starts_with(prefix); it->Next()) {
-                  Status s = txn->Delete(it->key());
+                  Status s = txn->Delete(handles[col], it->key());
                   assert(s.ok());
                   _count++;
             }
@@ -147,14 +130,15 @@ extern "C" {
                 continue;
             }
             assert(s.ok());
+            cerr << "deleted " << _count << " entries for prefix" << endl;
             delete txn;
             return _count;
         }
         return _count;
     }
 
-    void queue_set(const char *key, size_t keylen, const char *value, size_t valuelen, char** error, size_t* errorlen) {
-        Status s = db->Put(write_opts, cf_queue, Slice(key, keylen), Slice(value, valuelen));
+    void db_set(int col, const char *key, size_t keylen, const char *value, size_t valuelen, char** error, size_t* errorlen) {
+        Status s = db->Put(write_opts, handles[col], Slice(key, keylen), Slice(value, valuelen));
         if (!s.ok()) {
             printf("db ptr: %p\n", (void*) db);
             cerr << "Queue Set: " << s.ToString() << endl;
@@ -169,10 +153,10 @@ extern "C" {
         assert(s.ok());
     }
 
-    void queue_delete(const char *key, size_t keylen, char** error, size_t* errorlen) {
+    void db_delete(int col, const char *key, size_t keylen, char** error, size_t* errorlen) {
         Transaction* txn = db->BeginTransaction(write_opts);
         assert(txn);
-        Status s = txn->Delete(cf_queue, Slice(key, keylen));
+        Status s = txn->Delete(handles[col], Slice(key, keylen));
         if (!s.ok()) {
             cerr << "Queue Delete: " << s.ToString() << endl;
             auto e = s.ToString();
@@ -196,10 +180,10 @@ extern "C" {
         delete txn;
     }
 
-    char* queue_get(const char *key, size_t keylen, size_t *valuelen) {
+    char* db_get(int col, const char *key, size_t keylen, size_t *valuelen) {
         std::string value;
         char *rv;
-        Status s = db->Get(read_opts, cf_queue, Slice(key, keylen), &value);
+        Status s = db->Get(read_opts, handles[col], Slice(key, keylen), &value);
         if (s.IsNotFound()) return NULL;
         if (!s.ok()) {
             cerr << "queue get: " << s.ToString() << endl;
@@ -221,65 +205,4 @@ extern "C" {
         printf("DELETING DB (rocksdb)\n");
         delete db;
     }
-
-
-    void persist_set(const char *key, size_t keylen, const char *value, size_t valuelen, char** error, size_t* errorlen) {
-        Status s = db->Put(write_opts, cf_persist, Slice(key, keylen), Slice(value, valuelen));
-        if (!s.ok()) {
-            printf("db ptr: %p\n", (void*) db);
-            cerr << "persist Set: " << s.ToString() << endl;
-            // copy error value out
-            auto e = s.ToString();
-            *error = (char*) malloc(e.size());
-            *errorlen = e.size();
-            memcpy(*error, e.data(), e.size());
-        } else {
-            *errorlen = 0;
-        }
-        assert(s.ok());
-    }
-
-    void persist_delete(const char *key, size_t keylen, char** error, size_t* errorlen) {
-        Transaction* txn = db->BeginTransaction(write_opts);
-        assert(txn);
-        Status s = txn->Delete(cf_persist, Slice(key, keylen));
-        if (!s.ok()) {
-            cerr << "persist Delete: " << s.ToString() << endl;
-            auto e = s.ToString();
-            *error = (char*) malloc(e.size());
-            *errorlen = e.size();
-            memcpy(*error, e.data(), e.size());
-            delete txn;
-            return;
-        }
-        s = txn->Commit();
-        if (!s.ok()) {
-            auto e = s.ToString();
-            *error = (char*) malloc(e.size());
-            *errorlen = e.size();
-            memcpy(*error, e.data(), e.size());
-            delete txn;
-            return;
-        }
-        assert(s.ok());
-        *errorlen = 0;
-        delete txn;
-    }
-
-    char* persist_get(const char *key, size_t keylen, size_t *valuelen) {
-        std::string value;
-        char *rv;
-        Status s = db->Get(read_opts, cf_persist, Slice(key, keylen), &value);
-        if (s.IsNotFound()) return NULL;
-        if (!s.ok()) {
-            cerr << "persist get: " << s.ToString() << endl;
-        }
-        assert(s.ok());
-        rv = (char*) malloc(value.length());
-        *valuelen = value.length();
-        memcpy(rv, value.data(), value.length());
-        return rv;
-    }
-
-
 }

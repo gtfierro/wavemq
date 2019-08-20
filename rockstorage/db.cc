@@ -14,7 +14,8 @@ using std::endl;
 //static DB* db;
 static OptimisticTransactionDB* db;
 //static TransactionDB* db;
-//static ColumnFamilyHandle* cf_queue;
+static ColumnFamilyHandle* cf_queue;
+static ColumnFamilyHandle* cf_persist;
 static WriteOptions write_opts;
 static ReadOptions read_opts;
 //TransactionOptions txn_opts;
@@ -24,7 +25,7 @@ extern "C" {
     #include "iface.h"
 
     void init(std::string dbname, size_t spinning_metal) {
-        //std::vector<ColumnFamilyDescriptor> cfs;
+        std::vector<ColumnFamilyDescriptor> cfs;
 
         //write_opts.sync = true;
 
@@ -32,7 +33,7 @@ extern "C" {
         opts.IncreaseParallelism();
         opts.OptimizeLevelStyleCompaction();
         opts.create_if_missing = true;
-        //opts.create_missing_column_families = true;
+        opts.create_missing_column_families = true;
         //opts.enable_pipelined_write=true;
         //TransactionDBOptions txn_db_options;
 
@@ -43,12 +44,13 @@ extern "C" {
             opts.skip_stats_update_on_db_open = true;
         }
 
-        //cfs.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
-        //cfs.push_back(ColumnFamilyDescriptor("CF_QUEUE", ColumnFamilyOptions()));
+        cfs.push_back(ColumnFamilyDescriptor(kDefaultColumnFamilyName, ColumnFamilyOptions()));
+        cfs.push_back(ColumnFamilyDescriptor("CF_QUEUE", ColumnFamilyOptions()));
+        cfs.push_back(ColumnFamilyDescriptor("CF_PERSIST", ColumnFamilyOptions()));
 
         //Status s = TransactionDB::Open(opts, txn_db_options, dbname, cfs, &handles, &db);
         //std::string dbdir = "/tmp/wavemq_rocksdb_test";
-        Status s = OptimisticTransactionDB::Open(opts, dbname, &db);//cfs, &handles, &db);
+        Status s = OptimisticTransactionDB::Open(opts, dbname, cfs, &handles, &db);//cfs, &handles, &db);
         cerr << 4;
         if (!s.ok()) {
             cerr << "Open DB: " << s.ToString() << endl;
@@ -57,7 +59,8 @@ extern "C" {
         assert(s.ok());
         printf("(good?) db ptr: %p\n", (void*)db);
         cerr << 6;
-        //cf_queue = handles[1];
+        cf_queue = handles[1];
+        cf_persist = handles[2];
         cerr << 7;
     }
 
@@ -101,7 +104,7 @@ extern "C" {
         ReadOptions ro;
         cerr << "start iterator" << endl;
         //ro.total_order_seek=true;
-        auto it = db->NewIterator(ro);//, cf_queue);
+        auto it = db->NewIterator(ro, cf_queue);//, cf_queue);
         it->Seek(Slice(pfx, pfxlen));
         *state = it;
         if (!it->Valid() || !it->key().starts_with(Slice(pfx, pfxlen))) {
@@ -167,7 +170,7 @@ extern "C" {
     }
 
     void queue_set(const char *key, size_t keylen, const char *value, size_t valuelen, char** error, size_t* errorlen) {
-        Status s = db->Put(write_opts, Slice(key, keylen), Slice(value, valuelen));
+        Status s = db->Put(write_opts, cf_queue, Slice(key, keylen), Slice(value, valuelen));
         if (!s.ok()) {
             printf("db ptr: %p\n", (void*) db);
             cerr << "Queue Set: " << s.ToString() << endl;
@@ -186,7 +189,7 @@ extern "C" {
         Transaction* txn = db->BeginTransaction(write_opts);
         assert(txn);
         //cerr << "begin del" << endl;
-        Status s = txn->Delete(Slice(key, keylen));
+        Status s = txn->Delete(cf_queue, Slice(key, keylen));
         //Status s = db->Delete(write_opts, Slice(key, keylen));
         if (!s.ok()) {
             cerr << "Queue Delete: " << s.ToString() << endl;
@@ -216,7 +219,7 @@ extern "C" {
         //printf("db ptr: %p\n", (void*) db);
         std::string value;
         char *rv;
-        Status s = db->Get(read_opts, Slice(key, keylen), &value);
+        Status s = db->Get(read_opts, cf_queue, Slice(key, keylen), &value);
         if (s.IsNotFound()) return NULL;
         if (!s.ok()) {
             cerr << "queue get: " << s.ToString() << endl;
@@ -238,4 +241,69 @@ extern "C" {
         printf("DELETING DB (rocksdb)\n");
         delete db;
     }
+
+
+    void persist_set(const char *key, size_t keylen, const char *value, size_t valuelen, char** error, size_t* errorlen) {
+        Status s = db->Put(write_opts, cf_persist, Slice(key, keylen), Slice(value, valuelen));
+        if (!s.ok()) {
+            printf("db ptr: %p\n", (void*) db);
+            cerr << "persist Set: " << s.ToString() << endl;
+            // copy error value out
+            auto e = s.ToString();
+            *error = (char*) malloc(e.size());
+            *errorlen = e.size();
+            memcpy(*error, e.data(), e.size());
+        } else {
+            *errorlen = 0;
+        }
+        assert(s.ok());
+    }
+
+    void persist_delete(const char *key, size_t keylen, char** error, size_t* errorlen) {
+        Transaction* txn = db->BeginTransaction(write_opts);
+        assert(txn);
+        //cerr << "begin del" << endl;
+        Status s = txn->Delete(cf_persist, Slice(key, keylen));
+        //Status s = db->Delete(write_opts, Slice(key, keylen));
+        if (!s.ok()) {
+            cerr << "persist Delete: " << s.ToString() << endl;
+            auto e = s.ToString();
+            *error = (char*) malloc(e.size());
+            *errorlen = e.size();
+            memcpy(*error, e.data(), e.size());
+            delete txn;
+            return;
+        }
+        //cerr << "commit" << endl;
+        s = txn->Commit();
+        if (!s.ok()) {
+            auto e = s.ToString();
+            *error = (char*) malloc(e.size());
+            *errorlen = e.size();
+            memcpy(*error, e.data(), e.size());
+            delete txn;
+            return;
+        }
+        assert(s.ok());
+        *errorlen = 0;
+        delete txn;
+    }
+
+    char* persist_get(const char *key, size_t keylen, size_t *valuelen) {
+        //printf("db ptr: %p\n", (void*) db);
+        std::string value;
+        char *rv;
+        Status s = db->Get(read_opts, cf_persist, Slice(key, keylen), &value);
+        if (s.IsNotFound()) return NULL;
+        if (!s.ok()) {
+            cerr << "persist get: " << s.ToString() << endl;
+        }
+        assert(s.ok());
+        rv = (char*) malloc(value.length());
+        *valuelen = value.length();
+        memcpy(rv, value.data(), value.length());
+        return rv;
+    }
+
+
 }

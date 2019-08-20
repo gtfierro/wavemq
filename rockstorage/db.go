@@ -8,10 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"sync"
 	"unsafe"
 )
 
-var didInit bool = false
+var initOnce sync.Once
 var noop = true
 
 var ErrObjNotFound = errors.New("Object Not Found")
@@ -40,16 +41,14 @@ func GetError(errstr *C.char, errlen C.size_t) error {
 }
 
 func Initialize(dbname string, spinning_metal bool) {
-	if didInit {
-		return
-	}
-	opt_for_spin := 0
-	if spinning_metal {
-		opt_for_spin = 1
-	}
-	name := []byte(dbname)
-	C.c_init((*C.char)(unsafe.Pointer(&name[0])), (C.size_t)(len(name)), (C.size_t)(opt_for_spin))
-	didInit = true
+	initOnce.Do(func() {
+		opt_for_spin := 0
+		if spinning_metal {
+			opt_for_spin = 1
+		}
+		name := []byte(dbname)
+		C.c_init((*C.char)(unsafe.Pointer(&name[0])), (C.size_t)(len(name)), (C.size_t)(opt_for_spin))
+	})
 }
 
 func Close() {
@@ -222,4 +221,34 @@ func (wb *WriteBatch) Set(key, value []byte) {
 func (wb *WriteBatch) Commit() {
 	C.queue_wb_done(wb.state)
 	//C.queue_wb_delete(wb.state)
+}
+
+func PersistGet(key []byte) ([]byte, error) {
+	var ln C.size_t
+	val := C.queue_get((*C.char)(unsafe.Pointer(&key[0])),
+		(C.size_t)(len(key)),
+		&ln)
+	if val == nil {
+		return nil, ErrObjNotFound
+	}
+	rv := make([]byte, int(ln))
+	C.memcpy(unsafe.Pointer(&rv[0]), unsafe.Pointer(val), ln)
+	C.free(unsafe.Pointer(val))
+	return rv, nil
+}
+
+func PersistSet(key, value []byte) error {
+	var errstr *C.char
+	var errlen C.size_t
+	C.queue_set((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)),
+		(*C.char)(unsafe.Pointer(&value[0])), (C.size_t)(len(value)),
+		&errstr, &errlen)
+	return GetError(errstr, errlen)
+}
+
+func PersistDelete(key []byte) error {
+	var errstr *C.char
+	var errlen C.size_t
+	C.queue_delete((*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)), &errstr, &errlen)
+	return GetError(errstr, errlen)
 }

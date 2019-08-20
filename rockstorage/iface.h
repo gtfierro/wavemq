@@ -17,3 +17,7 @@ void queue_wb_start(void** state);
 void queue_wb_set(void* state, char* key, size_t keylen, char* value, size_t valuelen);
 void queue_wb_done(void* state);
 void queue_wb_delete(void* state);
+
+char* persist_get(const char *key, size_t keylen, size_t *valuelen);
+void persist_delete(const char *key, size_t keylen, char** err, size_t* errlen);
+void persist_set(const char *key, size_t keylen, const char *value, size_t valuelen, char** err, size_t* errlen);

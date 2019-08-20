@@ -17,6 +17,7 @@ import (
 	"github.com/immesys/wavemq/server"
 	logging "github.com/op/go-logging"
 	// "github.com/pkg/profile"
+	rocksdb "github.com/immesys/wavemq/rockstorage"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/immesys/sysdigtracer"
@@ -35,6 +36,7 @@ var rootspan opentracing.Span
 //TODO add "we are DR for" in config. Reject peer publish messages if we are not DR
 //TODO persist messages if they have persist flag and we are DR
 type Configuration struct {
+	StorageConfig rocksdb.StorageConfig
 	RoutingConfig core.RoutingConfig
 	WaveConfig    waved.Configuration
 	QueueConfig   core.QManagerConfig
@@ -81,6 +83,8 @@ func main() {
 		fmt.Printf("failed to load configuration: %v\n", err)
 		os.Exit(1)
 	}
+	// use rocksdb storage config to override persistdatastore and queuedatastore
+	rocksdb.Initialize(conf.StorageConfig)
 	fmt.Printf("configuration loaded\n")
 
 	consts.DefaultToUnrevoked = conf.WaveConfig.DefaultToUnrevoked

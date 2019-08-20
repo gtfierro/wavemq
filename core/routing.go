@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -19,8 +18,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/grpc"
-
-	rocksdb "github.com/immesys/wavemq/rockstorage"
 
 	opentracing "github.com/opentracing/opentracing-go"
 )
@@ -158,8 +155,6 @@ type DesignatedRouter struct {
 type RoutingConfig struct {
 	//Our entity
 	RouterEntityFile string
-	//Where persisted messages get stored
-	PersistDataStore string
 	//Designated Routers
 	Router []DesignatedRouter
 	//Namespaces we are a designated router for
@@ -271,10 +266,10 @@ func NewTerminus(qm *QManager, am *AuthModule, cfg *RoutingConfig) (*Terminus, e
 	// "something"
 
 	//Make the persist directory
-	err = os.MkdirAll(cfg.PersistDataStore, 0755)
-	if err != nil {
-		return nil, err
-	}
+	//err = os.MkdirAll(cfg.PersistDataStore, 0755)
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	//Open the database
 	//opts := badger.DefaultOptions
@@ -283,10 +278,7 @@ func NewTerminus(qm *QManager, am *AuthModule, cfg *RoutingConfig) (*Terminus, e
 	//opts.Dir = cfg.PersistDataStore
 	//opts.ValueDir = cfg.PersistDataStore
 	//db, err := badger.Open(opts)
-	rocksdb.Initialize(cfg.PersistDataStore, false)
-	if err != nil {
-		return nil, err
-	}
+	//rocksdb.Initialize(cfg.PersistDataStore, false)
 	//rv.db = db
 
 	rv.ourNodeId = rv.LoadID()

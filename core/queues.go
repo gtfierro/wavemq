@@ -134,7 +134,6 @@ type Queue struct {
 
 //The configuration governing queues
 type QManagerConfig struct {
-	QueueDataStore string
 	//Seconds
 	QueueExpiry int64
 
@@ -224,7 +223,7 @@ func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 	//opts := badger.DefaultOptions
 	//opts.Dir = cfg.QueueDataStore
 	//opts.ValueDir = cfg.QueueDataStore
-	rocksdb.Initialize(cfg.QueueDataStore, false)
+	//rocksdb.Initialize(cfg.QueueDataStore, false)
 	//db, err := badger.Open(opts)
 	//if err != nil {
 	//	return nil, err

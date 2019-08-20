@@ -47,8 +47,10 @@ func getError(errstr *C.char, errlen C.size_t) error {
 	return nil
 }
 
-func Initialize(dbname string, spinning_metal bool) {
+func Initialize(conf StorageConfig) {
 	initOnce.Do(func() {
+		dbname := conf.DataStore
+		spinning_metal := conf.OptimizeForSpinningMetal
 		opt_for_spin := 0
 		if spinning_metal {
 			opt_for_spin = 1
@@ -205,4 +207,11 @@ func (it *Iterator) Key() []byte {
 }
 func (it *Iterator) Value() []byte {
 	return it.current_value
+}
+
+type StorageConfig struct {
+	// if true, optimize rocksdb for spinning metal
+	OptimizeForSpinningMetal bool
+	// file path of rocksdb for queue and persist
+	DataStore string
 }

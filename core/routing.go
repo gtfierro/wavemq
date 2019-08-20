@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/creachadair/cityhash"
-	"github.com/dgraph-io/badger"
+	//"github.com/dgraph-io/badger"
 	"github.com/golang/protobuf/proto"
 	"github.com/immesys/wave/wve"
 	pb "github.com/immesys/wavemq/mqpb"
@@ -123,7 +123,7 @@ type Terminus struct {
 	cfg *RoutingConfig
 
 	//The database used for storing persisted messages
-	db *badger.DB
+	//db *badger.DB
 
 	//The supported namespaces
 	namespaces map[string]*DesignatedRouter
@@ -277,12 +277,12 @@ func NewTerminus(qm *QManager, am *AuthModule, cfg *RoutingConfig) (*Terminus, e
 	}
 
 	//Open the database
-	opts := badger.DefaultOptions
-	//Required on RPI
-	//opts.ValueLogLoadingMode = options.FileIO
-	opts.Dir = cfg.PersistDataStore
-	opts.ValueDir = cfg.PersistDataStore
-	db, err := badger.Open(opts)
+	//opts := badger.DefaultOptions
+	////Required on RPI
+	////opts.ValueLogLoadingMode = options.FileIO
+	//opts.Dir = cfg.PersistDataStore
+	//opts.ValueDir = cfg.PersistDataStore
+	//db, err := badger.Open(opts)
 	rocksdb.Initialize(cfg.PersistDataStore, false)
 	if err != nil {
 		return nil, err

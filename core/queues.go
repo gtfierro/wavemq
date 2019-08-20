@@ -338,7 +338,7 @@ func (qm *QManager) Remove(id ID) {
 
 //Restores the queue in-memory states from disk
 func (qm *QManager) recover() error {
-	it := rocksdb.NewIterator([]byte("h/"))
+	it := rocksdb.NewIterator(rocksdb.QUEUE, []byte("h/"))
 	for it.HasNext() {
 		v := it.Value()
 		hdr, err := LoadQueueHeader(v)
@@ -363,7 +363,7 @@ func (qm *QManager) recover() error {
 	for _, q := range qm.qz {
 		var largest int64
 		qprefix := []byte(keyQueuePrefix(q.hdr.ID))
-		it := rocksdb.NewIterator(qprefix)
+		it := rocksdb.NewIterator(rocksdb.QUEUE, qprefix)
 		for it.HasNext() {
 			k := it.Key()
 			indexString := k[len(qprefix):]

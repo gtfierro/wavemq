@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dgraph-io/badger"
 	rocksdb "github.com/immesys/wavemq/rockstorage"
 	"github.com/pborman/uuid"
 )
@@ -213,41 +212,35 @@ type DBIterator interface {
 }
 
 type iteratorAdapter struct {
-	it  *badger.Iterator
+	it  *rocksdb.Iterator
 	pfx []byte
-	txn *badger.Txn
 }
 
 func (ia *iteratorAdapter) Next() {
 	ia.it.Next()
 }
 func (ia *iteratorAdapter) OK() bool {
-	return ia.it.ValidForPrefix(ia.pfx)
+	return ia.it.HasNext()
 }
 func (ia *iteratorAdapter) Key() []byte {
-	return ia.it.Item().Key()[1:] //Strip CF
+	return ia.it.Key()[1:] //Strip CF
 }
 func (ia *iteratorAdapter) Value() []byte {
-	rv, err := ia.it.Item().Value()
-	if err != nil {
-		panic(err)
-	}
-	return rv
+	return ia.it.Value()
 }
 func (ia *iteratorAdapter) Release() {
-	ia.it.Close()
-	ia.txn.Discard()
+	//ia.it.Close()
+	//ia.txn.Discard()
 }
 func (t *Terminus) createIterator(cf int, pfx []byte) DBIterator {
-	txn := t.db.NewTransaction(false)
-	it := txn.NewIterator(badger.DefaultIteratorOptions)
+	//txn := t.db.NewTransaction(false)
+	//it := txn.NewIterator(badger.DefaultIteratorOptions)
 	key := make([]byte, len(pfx)+1)
 	key[0] = byte(cf)
 	copy(key[1:], pfx)
-	it.Seek(key)
+	it := rocksdb.NewIterator(rocksdb.PERSIST, pfx)
 	return &iteratorAdapter{
 		it:  it,
-		txn: txn,
 		pfx: key,
 	}
 }

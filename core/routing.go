@@ -287,26 +287,26 @@ func NewTerminus(qm *QManager, am *AuthModule, cfg *RoutingConfig) (*Terminus, e
 	if err != nil {
 		return nil, err
 	}
-	rv.db = db
+	//rv.db = db
 
 	rv.ourNodeId = rv.LoadID()
 
 	//Run the BG tasks
 	go rv.bgTasks()
-	go rv.trimDB()
+	//go rv.trimDB()
 	return rv, nil
 }
 
-func (t *Terminus) trimDB() {
-	for {
-		time.Sleep(30 * time.Minute)
-	again:
-		err := t.db.RunValueLogGC(0.5)
-		if err == nil {
-			goto again
-		}
-	}
-}
+//func (t *Terminus) trimDB() {
+//	for {
+//		time.Sleep(30 * time.Minute)
+//	again:
+//		err := t.db.RunValueLogGC(0.5)
+//		if err == nil {
+//			goto again
+//		}
+//	}
+//}
 func (t *Terminus) RouterID() string {
 	return t.ourNodeId
 }

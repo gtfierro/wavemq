@@ -1,6 +1,6 @@
 basepath="/home/gabe/go/src/github.com/immesys/wavemq"
 build: pairing.a
-	CGO_CFLAGS="-I${basepath}/rockstorage/include" CGO_LDFLAGS="-L${basepath}/rockstorage/lib -lrocksdb_debug -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 -lzstd" go build
+	CGO_CFLAGS="-I${basepath}/rockstorage/include" CGO_LDFLAGS="-L${basepath}/rockstorage/lib -lrocksdb -lstdc++ -lm -lz -lbz2 -lsnappy -llz4 -lzstd" go build
 pairing.a:
 	cd vendor/github.com/ucbrise/jedi-pairing && make
 

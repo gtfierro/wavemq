@@ -44,7 +44,8 @@ extern "C" {
             // suggestsions from https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide#difference-of-spinning-disk
             cerr << "Optimizing for spinning metal" << endl;
             // for spinning metal
-            opts.compaction_readahead_size = 4 * 1024 * 1024;
+            opts.IncreaseParallelism(4);
+            opts.compaction_readahead_size = 8 * 1024 * 1024;
             opts.optimize_filters_for_hits = true;
             opts.skip_stats_update_on_db_open = true;
             opts.new_table_reader_for_compaction_inputs=true;

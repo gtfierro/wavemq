@@ -6,9 +6,14 @@ import (
 	"testing"
 )
 
+var cfg = StorageConfig{
+	OptimizeForSpinningMetal: false,
+	DataStore:                "_testdb_",
+}
+
 func TestSimple(t *testing.T) {
 	require := require.New(t)
-	Initialize("_testdb_", false)
+	Initialize(cfg)
 	k1, v1 := []byte("key1"), []byte("value1")
 	QueueSet(k1, v1)
 	v1p, err := QueueGet(k1)
@@ -22,7 +27,7 @@ func TestSimple(t *testing.T) {
 
 func TestIter(t *testing.T) {
 	require := require.New(t)
-	Initialize("_testdb_", false)
+	Initialize(cfg)
 
 	k1, v1 := []byte("a/b/c"), []byte("h/value1")
 	k2, v2 := []byte("a/b/d"), []byte("h/value2")
@@ -35,7 +40,7 @@ func TestIter(t *testing.T) {
 	v, e := QueueGet(k1)
 	require.NoError(e, "get k1")
 	require.NotNil(v, "value was nil")
-	it := NewIterator([]byte("a/b"))
+	it := NewIterator(QUEUE, []byte("a/b"))
 	require.True(it.HasNext(), "iterator validity")
 	require.Equal(it.Key(), k1, "check key")
 	require.Equal(it.Value(), v1, "check val")
@@ -49,11 +54,36 @@ func TestIter(t *testing.T) {
 	require.Equal(it.Value(), v3, "check val")
 	it.Next() // advance
 	require.False(it.HasNext(), "iterator validity")
+}
 
+func TestWriteBatch(t *testing.T) {
+	require := require.New(t)
+	Initialize(cfg)
+	wb := NewWriteBatch(QUEUE)
+	k1, v1 := []byte("1"), []byte("a")
+	k2, v2 := []byte("2"), []byte("b")
+	k3, v3 := []byte("3"), []byte("c")
+	wb.Set(k1, v1)
+	wb.Set(k2, v2)
+	wb.Set(k3, v3)
+	err := wb.Commit()
+	require.NoError(err, "commit wb")
+	v, e := QueueGet(k1)
+	require.NoError(e, "get k1")
+	require.NotNil(v, "value was nil")
+	require.Equal(v1, v, "check val")
+	v, e = QueueGet(k2)
+	require.NoError(e, "get k2")
+	require.NotNil(v, "value was nil")
+	require.Equal(v2, v, "check val")
+	v, e = QueueGet(k3)
+	require.NoError(e, "get k3")
+	require.NotNil(v, "value was nil")
+	require.Equal(v3, v, "check val")
 }
 
 func BenchmarkInsertThenDelete(b *testing.B) {
-	Initialize("_testdb_", false)
+	Initialize(cfg)
 	for i := 0; i < b.N; i++ {
 		key := make([]byte, 4)
 		binary.LittleEndian.PutUint32(key, uint32(i))
@@ -63,7 +93,7 @@ func BenchmarkInsertThenDelete(b *testing.B) {
 }
 
 func BenchmarkSet(b *testing.B) {
-	Initialize("_testdb_", false)
+	Initialize(cfg)
 	for i := 0; i < b.N; i++ {
 		key := make([]byte, 4)
 		binary.LittleEndian.PutUint32(key, uint32(i))

@@ -3,6 +3,7 @@
 #include <iostream>
 #include "rocksdb/db.h"
 #include <rocksdb/table.h>
+#include "rocksdb/write_batch.h"
 #include "rocksdb/utilities/transaction.h"
 #include "rocksdb/utilities/optimistic_transaction_db.h"
 
@@ -72,6 +73,7 @@ extern "C" {
     }
 
     void db_it_start(int col, void** state, const char *pfx, size_t pfxlen, char** key, size_t* keylen, char** value, size_t* valuelen) {
+        //TODO: iterator getting stuck; not deleted?
         ReadOptions ro;
         cerr << "start iterator" << endl;
         //ro.total_order_seek=true;
@@ -194,6 +196,32 @@ extern "C" {
         *valuelen = value.length();
         memcpy(rv, value.data(), value.length());
         return rv;
+    }
+
+    void db_wb(void** state) {
+        WriteBatch *batch = new WriteBatch();    
+        *state = batch;
+    }
+
+    void db_wb_set(int col, void* state, const char *key, size_t keylen, const char *value, size_t valuelen) {
+        WriteBatch* batch = (WriteBatch*) state;
+        batch->Put(handles[col], Slice(key, keylen), Slice(value, valuelen));
+    }
+
+    void db_wb_commit(int col, void* state, char** error, size_t* errorlen) {
+        WriteBatch* batch = (WriteBatch*) state;
+        Status s = db->Write(write_opts, batch);
+        if (!s.ok()) {
+            auto e = s.ToString();
+            *error = (char*) malloc(e.size());
+            *errorlen = e.size();
+            memcpy(*error, e.data(), e.size());
+            delete batch;
+            return;
+        }
+        *errorlen = 0;
+        delete batch;
+        return;
     }
 
     void c_init(const char* name, size_t namelen, size_t spinning_metal) {

@@ -210,3 +210,27 @@ type StorageConfig struct {
 	// file path of rocksdb for queue and persist
 	DataStore string
 }
+
+type WriteBatch struct {
+	state unsafe.Pointer
+	col   Column
+}
+
+func NewWriteBatch(col Column) *WriteBatch {
+	wb := &WriteBatch{
+		col: col,
+	}
+	C.db_wb(&wb.state)
+	return wb
+}
+
+func (wb *WriteBatch) Set(key, value []byte) {
+	C.db_wb_set(C.int(wb.col), wb.state, (*C.char)(unsafe.Pointer(&key[0])), (C.size_t)(len(key)), (*C.char)(unsafe.Pointer(&value[0])), (C.size_t)(len(value)))
+}
+
+func (wb *WriteBatch) Commit() error {
+	var errstr *C.char
+	var errlen C.size_t
+	C.db_wb_commit(C.int(wb.col), wb.state, &errstr, &errlen)
+	return getError(errstr, errlen)
+}

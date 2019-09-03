@@ -8,6 +8,7 @@ env:
 
 before_install:
   - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh  
+  - cd ../../ && mv gtfierro immesys && cd immesys/wavemq
   - dep ensure
   - sudo apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev
 
@@ -22,4 +23,7 @@ script:
   - mkdir -p ../rockstorage/lib
   - cp librocksdb.a ../rockstorage/lib
   - popd
-  - go build 
+  - pushd vendor/github.com/ucbrise/jedi-pairing 
+  - make
+  - popd
+  - go build

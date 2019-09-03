@@ -265,40 +265,13 @@ func NewTerminus(qm *QManager, am *AuthModule, cfg *RoutingConfig) (*Terminus, e
 	// "" -> local
 	// "something"
 
-	//Make the persist directory
-	//err = os.MkdirAll(cfg.PersistDataStore, 0755)
-	//if err != nil {
-	//	return nil, err
-	//}
-
-	//Open the database
-	//opts := badger.DefaultOptions
-	////Required on RPI
-	////opts.ValueLogLoadingMode = options.FileIO
-	//opts.Dir = cfg.PersistDataStore
-	//opts.ValueDir = cfg.PersistDataStore
-	//db, err := badger.Open(opts)
-	//rocksdb.Initialize(cfg.PersistDataStore, false)
-	//rv.db = db
-
 	rv.ourNodeId = rv.LoadID()
 
 	//Run the BG tasks
 	go rv.bgTasks()
-	//go rv.trimDB()
 	return rv, nil
 }
 
-//func (t *Terminus) trimDB() {
-//	for {
-//		time.Sleep(30 * time.Minute)
-//	again:
-//		err := t.db.RunValueLogGC(0.5)
-//		if err == nil {
-//			goto again
-//		}
-//	}
-//}
 func (t *Terminus) RouterID() string {
 	return t.ourNodeId
 }

@@ -213,22 +213,6 @@ func LoadQueueHeader(ser []byte) (*QueueHeader, error) {
 
 //Create a new queue manager with the given configuration
 func NewQManager(cfg *QManagerConfig) (*QManager, error) {
-	//Make the queue directory
-	//err := os.MkdirAll(cfg.QueueDataStore, 0755)
-	//if err != nil {
-	//	return nil, err
-	//}
-
-	//Open database
-	//opts := badger.DefaultOptions
-	//opts.Dir = cfg.QueueDataStore
-	//opts.ValueDir = cfg.QueueDataStore
-	//rocksdb.Initialize(cfg.QueueDataStore, false)
-	//db, err := badger.Open(opts)
-	//if err != nil {
-	//	return nil, err
-	//}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	rv := &QManager{
 		//db:        db,
@@ -242,34 +226,17 @@ func NewQManager(cfg *QManagerConfig) (*QManager, error) {
 		return nil, err
 	}
 	go rv.bgTasks()
-	//go rv.trimDB()
 
 	return rv, nil
 }
 
-//func (qm *QManager) trimDB() {
-//	for {
-//	again:
-//		err := qm.db.RunValueLogGC(0.5)
-//		if err == nil {
-//			fmt.Printf("GC successful\n")
-//			goto again
-//		}
-//		fmt.Printf("GC returns: %v\n", err)
-//		time.Sleep(5 * time.Minute)
-//	}
-//}
 func (qm *QManager) Shutdown() {
 	qm.qzmu.Lock()
 	for _, q := range qm.qz {
 		q.Flush()
 	}
 	qm.ctxcancel()
-	//rocksdb.Close()
-	//err := qm.db.Close()
-	//if err != nil {
-	//	panic(err)
-	//}
+	rocksdb.Close()
 }
 
 func (qm *QManager) AllQueueIDs() []ID {
@@ -392,68 +359,6 @@ func (qm *QManager) recover() error {
 	pmNumQueues.Set(float64(len(qm.qz)))
 	return nil
 
-	//return qm.db.View(func(txn *badger.Txn) error {
-	//	it := txn.NewIterator(badger.DefaultIteratorOptions)
-	//	defer it.Close()
-	//	hdrprefix := []byte("h/")
-	//	for it.Seek(hdrprefix); it.ValidForPrefix(hdrprefix); it.Next() {
-	//		v, err := it.Item().Value()
-	//		if err != nil {
-	//			return err
-	//		}
-	//		hdr, err := LoadQueueHeader(v)
-	//		if err != nil {
-	//			return err
-	//		}
-	//		ctx, cancel := context.WithCancel(context.Background())
-	//		q := &Queue{
-	//			hdr:       hdr,
-	//			mgr:       qm,
-	//			Ctx:       ctx,
-	//			ctxcancel: cancel,
-	//		}
-	//		if q.expired() {
-	//			q.ctxcancel()
-	//			q.remove()
-	//		} else {
-	//			qm.qz[hdr.ID] = q
-	//		}
-	//	}
-
-	//	for _, q := range qm.qz {
-	//		var largest int64
-	//		qprefix := []byte(keyQueuePrefix(q.hdr.ID))
-	//		for it.Seek(qprefix); it.ValidForPrefix(qprefix); it.Next() {
-	//			k := it.Item().Key()
-	//			indexString := k[len(qprefix):]
-	//			index, err := strconv.ParseInt(string(indexString), 10, 64)
-	//			if err != nil {
-	//				return err
-	//			}
-	//			if index > largest {
-	//				largest = index
-	//			}
-	//			v, err := it.Item().Value()
-	//			if err != nil {
-	//				return err
-	//			}
-	//			m := &pb.Message{}
-	//			err = proto.Unmarshal(v, m)
-	//			if err != nil {
-	//				return err
-	//			}
-	//			q.enqueueCommitted(index, m)
-	//		}
-	//		q.hdr.Index = largest + 1
-	//		q.WriteHeader()
-	//	}
-
-	//	for _, q := range qm.qz {
-	//		fmt.Printf("recovered queue %s (length=%d)\n", q.ID(), q.length)
-	//	}
-	//	pmNumQueues.Set(float64(len(qm.qz)))
-	//	return nil
-	//})
 }
 
 //Runs the periodic background tasks for all queues
@@ -768,20 +673,6 @@ func (q *Queue) GC() error {
 		if err := rocksdb.QueueDelete([]byte(e)); err != nil {
 			return err
 		}
-		//err := txn.Delete([]byte(e))
-		//if err == badger.ErrTxnTooBig {
-		//	err := txn.Commit(nil)
-		//	if err != nil {
-		//		return err
-		//	}
-		//	txn = q.mgr.db.NewTransaction(true)
-		//	err = txn.Delete([]byte(e))
-		//	if err != nil {
-		//		return err
-		//	}
-		//} else if err != nil {
-		//	return err
-		//}
 	}
 	return nil //txn.Commit(nil)
 }
@@ -832,10 +723,6 @@ func (q *Queue) Flush() error {
 	//the elements, so there is no danger of the list being corrupted while
 	//we walk it here. The only danger is that another flush modifies
 	//the Next pointer of the tail, so we hold flushmu to prevent that
-	//txn := q.mgr.db.NewTransaction(true)
-
-	//Be prepared to break the transaction into smaller ones
-	//bulkflush:
 
 	wb := rocksdb.NewWriteBatch(rocksdb.QUEUE)
 	it := ucHead
@@ -847,10 +734,6 @@ func (q *Queue) Flush() error {
 			panic(err)
 		}
 		wb.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-		// TODO: this still blocks; create a "bulk write" method?
-		//if err := rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin); err != nil {
-		//	return err
-		//}
 		pmCommittedMessages.Add(1)
 		it = nextit
 	}
@@ -859,33 +742,7 @@ func (q *Queue) Flush() error {
 		panic(err)
 	}
 
-	//for {
-	//	it := ucHead
-	//	for it != nil {
-	//		nextit := it.Next
-	//		bin, err := proto.Marshal(it.Content)
-	//		if err != nil {
-	//			panic(err)
-	//		}
-	//		rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-	//		//err = txn.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-	//		//if err == badger.ErrTxnTooBig {
-	//		//	err := txn.Commit(nil)
-	//		//	if err != nil {
-	//		//		return err
-	//		//	}
-	//		//	txn = q.mgr.db.NewTransaction(true)
-	//		//	continue bulkflush
-	//		//} else if err != nil {
-	//		//	return err
-	//		//}
-	//		pmCommittedMessages.Add(1)
-	//		it = nextit
-	//	}
-	//	break
-	//}
-
-	return nil //return txn.Commit(nil)
+	return nil
 }
 
 func (q *Queue) Destroy() {
@@ -915,50 +772,13 @@ func (q *Queue) remove() error {
 	if err := rocksdb.QueueDelete(hdrprefix); err != nil {
 		return err
 	}
-	//q.mgr.db.Update(func(txn *badger.Txn) error {
-	//	fmt.Printf("deleting key %q\n", hdrprefix)
-	//	txn.Delete(hdrprefix)
-	//	return nil
-	//})
 
 	pmQueuedMessages.Add(-float64((q.length + q.uncommittedLength)))
 	pmQueuedBytes.Add(-float64((q.size + q.uncommittedSize)))
 
-	//Transactions are limited in size. Be prepared to break up into lots
-	//of smaller transactions if there are a lot of records to delete
-	//bulkerase:
-	for {
-		//txn := q.mgr.db.NewTransaction(true)
-		//Required on RPI
-		//opts.ValueLogLoadingMode = options.FileIO
-		//opts := badger.DefaultIteratorOptions
-		//opts.PrefetchValues = false
-		//it := txn.NewIterator(opts)
-		prefix := []byte(keyQueuePrefix(q.hdr.ID))
-		num := rocksdb.QueueDeletePrefix(prefix)
-		pmCommittedMessages.Add(-float64(num))
-		//it := rocksdb.NewIterator(prefix)
-		//for it.HasNext() {
-		//	it.Next()
-		//}
-		//for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-		//	err := txn.Delete(it.Item().Key())
-		//	if err == badger.ErrTxnTooBig {
-		//		it.Close()
-		//		err := txn.Commit(nil)
-		//		if err != nil {
-		//			return err
-		//		}
-		//		continue bulkerase
-		//	} else if err != nil {
-		//		it.Close()
-		//		return err
-		//	}
-		//	pmCommittedMessages.Add(-1)
-		//}
-		//it.Close()
-		break
-	}
+	prefix := []byte(keyQueuePrefix(q.hdr.ID))
+	num := rocksdb.QueueDeletePrefix(prefix)
+	pmCommittedMessages.Add(-float64(num))
 
 	return nil
 }
@@ -1088,11 +908,6 @@ func (q *Queue) dequeue(refresh bool) *pb.Message {
 //Write the header out to the database
 func (q *Queue) writeHeader() error {
 	return rocksdb.QueueSet([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
-	//return nil
-	//return q.mgr.db.Update(func(txn *badger.Txn) error {
-	//	txn.Set([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
-	//	return nil
-	//})
 }
 
 func (i *Iterator) Next() {

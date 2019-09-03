@@ -20,7 +20,6 @@ const (
 )
 
 var initOnce sync.Once
-var noop = false
 
 var ErrObjNotFound = errors.New("Object Not Found")
 
@@ -61,9 +60,6 @@ func Initialize(conf StorageConfig) {
 }
 
 func Close() {
-	if noop {
-		return
-	}
 	C.close_db()
 }
 

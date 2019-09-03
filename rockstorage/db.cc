@@ -42,7 +42,7 @@ extern "C" {
         ColumnFamilyOptions cf_options;
 
         if (spinning_metal > 0) {
-            // suggestsions from https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide#difference-of-spinning-disk
+            // suggestions from https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide#difference-of-spinning-disk
             cerr << "Optimizing for spinning metal" << endl;
             // for spinning metal
             opts.IncreaseParallelism(4);
@@ -143,7 +143,7 @@ extern "C" {
     void db_set(int col, const char *key, size_t keylen, const char *value, size_t valuelen, char** error, size_t* errorlen) {
         Status s = db->Put(write_opts, handles[col], Slice(key, keylen), Slice(value, valuelen));
         if (!s.ok()) {
-            printf("db ptr: %p\n", (void*) db);
+            //printf("db ptr: %p\n", (void*) db);
             cerr << "Queue Set: " << s.ToString() << endl;
             // copy error value out
             auto e = s.ToString();
@@ -230,8 +230,7 @@ extern "C" {
     }
 
     void close_db() {
-        //delete cf_queue;
-        printf("DELETING DB (rocksdb)\n");
+        cerr << "DELETING DB (rocksdb)" << endl;
         delete db;
     }
 }

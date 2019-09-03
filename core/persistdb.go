@@ -83,26 +83,6 @@ func (t *Terminus) LoadID() (id string) {
 		id = string(v)
 	}
 	return
-	//err := t.db.Update(func(txn *badger.Txn) error {
-	//	key := []byte("routerid")
-	//	v, err := txn.Get(key)
-	//	if err == badger.ErrKeyNotFound {
-	//		fmt.Printf("creating new ID for router\n")
-	//		id = uuid.NewRandom().String()
-	//		return txn.Set(key, []byte(id))
-	//	}
-	//	idb, err := v.Value()
-	//	if err != nil {
-	//		return err
-	//	}
-	//	id = string(idb)
-	//	return nil
-	//})
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	//return
 }
 func (t *Terminus) putObject(cf int, path []byte, object []byte) {
 	key := make([]byte, len(path)+1)
@@ -111,20 +91,6 @@ func (t *Terminus) putObject(cf int, path []byte, object []byte) {
 	if err := rocksdb.PersistSet(key, object); err != nil {
 		panic(err)
 	}
-	//err := t.db.Update(func(txn *badger.Txn) error {
-	//	key := make([]byte, len(path)+1)
-	//	key[0] = byte(cf)
-	//	copy(key[1:], path)
-	//	err := txn.Set(key, object)
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//	return nil
-	//})
-
-	//if err != nil {
-	//	panic(err)
-	//}
 }
 func (t *Terminus) getObject(cf int, path []byte) (rv []byte, err error) {
 
@@ -140,30 +106,6 @@ func (t *Terminus) getObject(cf int, path []byte) (rv []byte, err error) {
 		return
 	}
 	return
-
-	//errx := t.db.View(func(txn *badger.Txn) error {
-	//	key := make([]byte, len(path)+1)
-	//	key[0] = byte(cf)
-	//	copy(key[1:], path)
-	//	item, e := txn.Get(key)
-	//	if e == badger.ErrKeyNotFound {
-	//		rv = nil
-	//		err = badger.ErrKeyNotFound
-	//		return nil
-	//	}
-	//	if e != nil {
-	//		rv = nil
-	//		err = e
-	//		return e
-	//	} else {
-	//		rv, err = item.Value()
-	//		return nil
-	//	}
-	//})
-	//if errx != nil {
-	//	panic(errx)
-	//}
-	//return
 }
 func (t *Terminus) exists(cf int, path []byte) (ex bool) {
 	key := make([]byte, len(path)+1)
@@ -179,28 +121,6 @@ func (t *Terminus) exists(cf int, path []byte) (ex bool) {
 		ex = true
 	}
 	return
-
-	//err := t.db.View(func(txn *badger.Txn) error {
-	//	key := make([]byte, len(path)+1)
-	//	key[0] = byte(cf)
-	//	copy(key[1:], path)
-	//	_, err := txn.Get(key)
-	//	if err == badger.ErrKeyNotFound {
-	//		ex = false
-	//		return nil
-	//	} else {
-	//		ex = true
-	//		return nil
-	//	}
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//	return nil
-	//})
-	//if err != nil {
-	//	panic(err)
-	//}
-	//return
 }
 
 type DBIterator interface {
@@ -233,8 +153,6 @@ func (ia *iteratorAdapter) Release() {
 	//ia.txn.Discard()
 }
 func (t *Terminus) createIterator(cf int, pfx []byte) DBIterator {
-	//txn := t.db.NewTransaction(false)
-	//it := txn.NewIterator(badger.DefaultIteratorOptions)
 	key := make([]byte, len(pfx)+1)
 	key[0] = byte(cf)
 	copy(key[1:], pfx)

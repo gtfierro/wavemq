@@ -20,7 +20,7 @@ const (
 )
 
 var initOnce sync.Once
-var noop = true
+var noop = false
 
 var ErrObjNotFound = errors.New("Object Not Found")
 

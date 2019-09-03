@@ -837,24 +837,27 @@ func (q *Queue) Flush() error {
 	//Be prepared to break the transaction into smaller ones
 	//bulkflush:
 
-	//wb := rocksdb.NewWriteBatch()
+	wb := rocksdb.NewWriteBatch(rocksdb.QUEUE)
 	it := ucHead
 	for it != nil {
 		nextit := it.Next
 		bin, err := proto.Marshal(it.Content)
 		if err != nil {
-			//wb.Commit()
+			wb.Commit()
 			panic(err)
 		}
-		//wb.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-		if err := rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin); err != nil {
-			return err
-		}
+		wb.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
+		// TODO: this still blocks; create a "bulk write" method?
+		//if err := rocksdb.QueueSet([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin); err != nil {
+		//	return err
+		//}
 		pmCommittedMessages.Add(1)
 		it = nextit
 	}
 	fmt.Println("finished flush")
-	//wb.Commit()
+	if err := wb.Commit(); err != nil {
+		panic(err)
+	}
 
 	//for {
 	//	it := ucHead

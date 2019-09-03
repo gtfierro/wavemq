@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/dgraph-io/badger"
+	rocksdb "github.com/immesys/wavemq/rockstorage"
 	"github.com/pborman/uuid"
 )
 
@@ -68,88 +68,57 @@ const cfMsgI = 1
 const cfMsg = 2
 
 func (t *Terminus) LoadID() (id string) {
-	err := t.db.Update(func(txn *badger.Txn) error {
-		key := []byte("routerid")
-		v, err := txn.Get(key)
-		if err == badger.ErrKeyNotFound {
-			fmt.Printf("creating new ID for router\n")
-			id = uuid.NewRandom().String()
-			return txn.Set(key, []byte(id))
+	key := []byte("routerid")
+	v, err := rocksdb.PersistGet(key)
+	if err == rocksdb.ErrObjNotFound {
+		fmt.Printf("creating new ID for router\n")
+		id = uuid.NewRandom().String()
+		if err := rocksdb.PersistSet(key, []byte(id)); err != nil {
+			panic(err)
 		}
-		idb, err := v.Value()
-		if err != nil {
-			return err
-		}
-		id = string(idb)
-		return nil
-	})
-	if err != nil {
+		return id
+	} else if err != nil {
 		panic(err)
+	} else {
+		id = string(v)
 	}
-
 	return
 }
 func (t *Terminus) putObject(cf int, path []byte, object []byte) {
-	err := t.db.Update(func(txn *badger.Txn) error {
-		key := make([]byte, len(path)+1)
-		key[0] = byte(cf)
-		copy(key[1:], path)
-		err := txn.Set(key, object)
-		if err != nil {
-			panic(err)
-		}
-		return nil
-	})
-
-	if err != nil {
+	key := make([]byte, len(path)+1)
+	key[0] = byte(cf)
+	copy(key[1:], path)
+	if err := rocksdb.PersistSet(key, object); err != nil {
 		panic(err)
 	}
 }
 func (t *Terminus) getObject(cf int, path []byte) (rv []byte, err error) {
-	errx := t.db.View(func(txn *badger.Txn) error {
-		key := make([]byte, len(path)+1)
-		key[0] = byte(cf)
-		copy(key[1:], path)
-		item, e := txn.Get(key)
-		if e == badger.ErrKeyNotFound {
-			rv = nil
-			err = badger.ErrKeyNotFound
-			return nil
-		}
-		if e != nil {
-			rv = nil
-			err = e
-			return e
-		} else {
-			rv, err = item.Value()
-			return nil
-		}
-	})
-	if errx != nil {
-		panic(errx)
+
+	key := make([]byte, len(path)+1)
+	key[0] = byte(cf)
+	copy(key[1:], path)
+	rv, err = rocksdb.PersistGet(key)
+	if err == rocksdb.ErrObjNotFound {
+		rv = nil
+		return
+	} else if err != nil {
+		rv = nil
+		return
 	}
 	return
 }
 func (t *Terminus) exists(cf int, path []byte) (ex bool) {
-	err := t.db.View(func(txn *badger.Txn) error {
-		key := make([]byte, len(path)+1)
-		key[0] = byte(cf)
-		copy(key[1:], path)
-		_, err := txn.Get(key)
-		if err == badger.ErrKeyNotFound {
-			ex = false
-			return nil
-		} else {
-			ex = true
-			return nil
-		}
-		if err != nil {
-			panic(err)
-		}
-		return nil
-	})
-	if err != nil {
+	key := make([]byte, len(path)+1)
+	key[0] = byte(cf)
+	copy(key[1:], path)
+	_, err := rocksdb.PersistGet(key)
+	if err == rocksdb.ErrObjNotFound {
+		ex = false
+		return
+	} else if err != nil {
 		panic(err)
+	} else {
+		ex = true
 	}
 	return
 }
@@ -163,41 +132,33 @@ type DBIterator interface {
 }
 
 type iteratorAdapter struct {
-	it  *badger.Iterator
+	it  *rocksdb.Iterator
 	pfx []byte
-	txn *badger.Txn
 }
 
 func (ia *iteratorAdapter) Next() {
 	ia.it.Next()
 }
 func (ia *iteratorAdapter) OK() bool {
-	return ia.it.ValidForPrefix(ia.pfx)
+	return ia.it.HasNext()
 }
 func (ia *iteratorAdapter) Key() []byte {
-	return ia.it.Item().Key()[1:] //Strip CF
+	return ia.it.Key()[1:] //Strip CF
 }
 func (ia *iteratorAdapter) Value() []byte {
-	rv, err := ia.it.Item().Value()
-	if err != nil {
-		panic(err)
-	}
-	return rv
+	return ia.it.Value()
 }
 func (ia *iteratorAdapter) Release() {
-	ia.it.Close()
-	ia.txn.Discard()
+	//ia.it.Close()
+	//ia.txn.Discard()
 }
 func (t *Terminus) createIterator(cf int, pfx []byte) DBIterator {
-	txn := t.db.NewTransaction(false)
-	it := txn.NewIterator(badger.DefaultIteratorOptions)
 	key := make([]byte, len(pfx)+1)
 	key[0] = byte(cf)
 	copy(key[1:], pfx)
-	it.Seek(key)
+	it := rocksdb.NewIterator(rocksdb.PERSIST, pfx)
 	return &iteratorAdapter{
 		it:  it,
-		txn: txn,
 		pfx: key,
 	}
 }

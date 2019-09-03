@@ -15,6 +15,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/encoding"
 	_ "google.golang.org/grpc/encoding/gzip"
+
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 //Some instrumentation
@@ -106,6 +108,8 @@ func (s *peerServer) PeerQueryRequest(p *pb.PeerQueryParams, r pb.WAVEMQPeering_
 }
 
 func (s *peerServer) PeerPublish(ctx context.Context, p *pb.PeerPublishParams) (*pb.PeerPublishResponse, error) {
+	span, ctx := opentracing.StartSpanFromContext(ctx, "peersrv_pub")
+	defer span.Finish()
 	err := s.am.CheckMessage(p.Msg)
 	if err != nil {
 		pmFailedPublish.Add(1)
@@ -132,6 +136,9 @@ func (ck *peerProofCacheKey) Serialize() []byte {
 }
 
 func (s *peerServer) PeerSubscribe(p *pb.PeerSubscribeParams, r pb.WAVEMQPeering_PeerSubscribeServer) error {
+	peersubspan := opentracing.StartSpan("peersub")
+	defer peersubspan.Finish()
+
 	err := s.am.CheckSubscription(p)
 	if err != nil {
 		pmFailedSubscribe.Add(1)
@@ -185,8 +192,10 @@ func (s *peerServer) PeerSubscribe(p *pb.PeerSubscribeParams, r pb.WAVEMQPeering
 			return nil
 		}
 		for {
+			subspan := opentracing.StartSpan("peersub_iter", opentracing.ChildOf(peersubspan.Context()))
 			it := q.Dequeue()
 			if it == nil {
+				subspan.Finish()
 				break
 			}
 			it = pb.ShallowCloneMessageForDrops(it)
@@ -217,6 +226,7 @@ func (s *peerServer) PeerSubscribe(p *pb.PeerSubscribeParams, r pb.WAVEMQPeering
 			r.Send(&pb.SubscriptionMessage{
 				Message: it,
 			})
+			subspan.Finish()
 		}
 	}
 }

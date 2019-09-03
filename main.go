@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"net/http"
 	_ "net/http/pprof"
@@ -15,7 +16,12 @@ import (
 	"github.com/immesys/wavemq/core"
 	"github.com/immesys/wavemq/server"
 	logging "github.com/op/go-logging"
+	// "github.com/pkg/profile"
+	rocksdb "github.com/immesys/wavemq/rockstorage"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	"github.com/immesys/sysdigtracer"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 var lg = logging.MustGetLogger("main")
@@ -24,10 +30,13 @@ const WAVEMQPermissionSet = "\x4a\xd2\x3f\x5f\x6e\x73\x17\x38\x98\xef\x51\x8c\x6
 const WAVEMQPublish = "publish"
 const WAVEMQSubscribe = "subscribe"
 
+var rootspan opentracing.Span
+
 //TODO test expiry gives unsub notifications
 //TODO add "we are DR for" in config. Reject peer publish messages if we are not DR
 //TODO persist messages if they have persist flag and we are DR
 type Configuration struct {
+	StorageConfig rocksdb.StorageConfig
 	RoutingConfig core.RoutingConfig
 	WaveConfig    waved.Configuration
 	QueueConfig   core.QManagerConfig
@@ -41,6 +50,21 @@ func main() {
 		fmt.Printf("usage: wavemq config.toml\n")
 		os.Exit(1)
 	}
+
+	//defer profile.Start(profile.BlockProfile, profile.ProfilePath(".")).Stop()
+
+	tracer := sysdigtracer.New()
+	opentracing.SetGlobalTracer(tracer)
+	rootspan = opentracing.StartSpan("root")
+	defer rootspan.Finish()
+
+	go func() {
+		for {
+			span := opentracing.StartSpan("Dummy")
+			time.Sleep(150 * time.Millisecond)
+			span.Finish()
+		}
+	}()
 
 	go func() {
 		http.Handle("/metrics", promhttp.Handler())
@@ -59,6 +83,8 @@ func main() {
 		fmt.Printf("failed to load configuration: %v\n", err)
 		os.Exit(1)
 	}
+	// use rocksdb storage config to override persistdatastore and queuedatastore
+	rocksdb.Initialize(conf.StorageConfig)
 	fmt.Printf("configuration loaded\n")
 
 	consts.DefaultToUnrevoked = conf.WaveConfig.DefaultToUnrevoked
@@ -77,6 +103,7 @@ func main() {
 		fmt.Printf("failed to initialize routing: %v\n", err)
 		os.Exit(1)
 	}
+	//defer profile.Start(profile.MemProfile, profile.ProfilePath(".")).Stop()
 	server.NewLocalServer(tm, am, &conf.LocalConfig)
 	server.NewPeerServer(tm, am, &conf.PeerConfig)
 	sigchan := make(chan os.Signal, 30)

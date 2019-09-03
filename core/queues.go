@@ -5,15 +5,15 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
-	"os"
+	//	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/dgraph-io/badger"
 	"github.com/golang/protobuf/proto"
 	pb "github.com/immesys/wavemq/mqpb"
+	rocksdb "github.com/immesys/wavemq/rockstorage"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -66,7 +66,7 @@ func init() {
 //the database backing the queues
 type QManager struct {
 	cfg QManagerConfig
-	db  *badger.DB
+	//db  *badger.DB
 
 	qz map[ID]*Queue
 	//The mutex must be held whenever qz is modified
@@ -134,7 +134,6 @@ type Queue struct {
 
 //The configuration governing queues
 type QManagerConfig struct {
-	QueueDataStore string
 	//Seconds
 	QueueExpiry int64
 
@@ -214,61 +213,30 @@ func LoadQueueHeader(ser []byte) (*QueueHeader, error) {
 
 //Create a new queue manager with the given configuration
 func NewQManager(cfg *QManagerConfig) (*QManager, error) {
-	//Make the queue directory
-	err := os.MkdirAll(cfg.QueueDataStore, 0755)
-	if err != nil {
-		return nil, err
-	}
-
-	//Open database
-	opts := badger.DefaultOptions
-	opts.Dir = cfg.QueueDataStore
-	opts.ValueDir = cfg.QueueDataStore
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil, err
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	rv := &QManager{
-		db:        db,
+		//db:        db,
 		qz:        make(map[ID]*Queue),
 		ctx:       ctx,
 		ctxcancel: cancel,
 		cfg:       *cfg,
 	}
-	err = rv.recover()
+	err := rv.recover()
 	if err != nil {
 		return nil, err
 	}
 	go rv.bgTasks()
-	go rv.trimDB()
 
 	return rv, nil
 }
 
-func (qm *QManager) trimDB() {
-	for {
-	again:
-		err := qm.db.RunValueLogGC(0.5)
-		if err == nil {
-			fmt.Printf("GC successful\n")
-			goto again
-		}
-		fmt.Printf("GC returns: %v\n", err)
-		time.Sleep(5 * time.Minute)
-	}
-}
 func (qm *QManager) Shutdown() {
 	qm.qzmu.Lock()
 	for _, q := range qm.qz {
 		q.Flush()
 	}
 	qm.ctxcancel()
-	err := qm.db.Close()
-	if err != nil {
-		panic(err)
-	}
+	rocksdb.Close()
 }
 
 func (qm *QManager) AllQueueIDs() []ID {
@@ -336,68 +304,61 @@ func (qm *QManager) Remove(id ID) {
 
 //Restores the queue in-memory states from disk
 func (qm *QManager) recover() error {
-	return qm.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-		hdrprefix := []byte("h/")
-		for it.Seek(hdrprefix); it.ValidForPrefix(hdrprefix); it.Next() {
-			v, err := it.Item().Value()
+	it := rocksdb.NewIterator(rocksdb.QUEUE, []byte("h/"))
+	for it.HasNext() {
+		v := it.Value()
+		hdr, err := LoadQueueHeader(v)
+		if err != nil {
+			return err
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		q := &Queue{
+			hdr:       hdr,
+			mgr:       qm,
+			Ctx:       ctx,
+			ctxcancel: cancel,
+		}
+		if q.expired() {
+			q.ctxcancel()
+			q.remove()
+		} else {
+			qm.qz[hdr.ID] = q
+		}
+		it.Next()
+	}
+	for _, q := range qm.qz {
+		var largest int64
+		qprefix := []byte(keyQueuePrefix(q.hdr.ID))
+		it := rocksdb.NewIterator(rocksdb.QUEUE, qprefix)
+		for it.HasNext() {
+			k := it.Key()
+			indexString := k[len(qprefix):]
+			index, err := strconv.ParseInt(string(indexString), 10, 64)
 			if err != nil {
 				return err
 			}
-			hdr, err := LoadQueueHeader(v)
+			if index > largest {
+				largest = index
+			}
+			v := it.Value()
+			m := &pb.Message{}
+			err = proto.Unmarshal(v, m)
 			if err != nil {
 				return err
 			}
-			ctx, cancel := context.WithCancel(context.Background())
-			q := &Queue{
-				hdr:       hdr,
-				mgr:       qm,
-				Ctx:       ctx,
-				ctxcancel: cancel,
-			}
-			if q.expired() {
-				q.ctxcancel()
-				q.remove()
-			} else {
-				qm.qz[hdr.ID] = q
-			}
+			q.enqueueCommitted(index, m)
+			it.Next()
 		}
+		q.hdr.Index = largest + 1
+		q.WriteHeader()
+	}
 
-		for _, q := range qm.qz {
-			var largest int64
-			qprefix := []byte(keyQueuePrefix(q.hdr.ID))
-			for it.Seek(qprefix); it.ValidForPrefix(qprefix); it.Next() {
-				k := it.Item().Key()
-				indexString := k[len(qprefix):]
-				index, err := strconv.ParseInt(string(indexString), 10, 64)
-				if err != nil {
-					return err
-				}
-				if index > largest {
-					largest = index
-				}
-				v, err := it.Item().Value()
-				if err != nil {
-					return err
-				}
-				m := &pb.Message{}
-				err = proto.Unmarshal(v, m)
-				if err != nil {
-					return err
-				}
-				q.enqueueCommitted(index, m)
-			}
-			q.hdr.Index = largest + 1
-			q.WriteHeader()
-		}
+	for _, q := range qm.qz {
+		fmt.Printf("recovered queue %s (length=%d)\n", q.ID(), q.length)
+	}
+	pmNumQueues.Set(float64(len(qm.qz)))
+	return nil
 
-		for _, q := range qm.qz {
-			fmt.Printf("recovered queue %s (length=%d)\n", q.ID(), q.length)
-		}
-		pmNumQueues.Set(float64(len(qm.qz)))
-		return nil
-	})
 }
 
 //Runs the periodic background tasks for all queues
@@ -405,6 +366,7 @@ func (qm *QManager) bgTasks() {
 	last := time.Now()
 	for {
 		last = last.Add(time.Duration(qm.cfg.FlushInterval * 1e9))
+		fmt.Println(1)
 		toSleep := last.Sub(time.Now())
 		if toSleep > 0 {
 			time.Sleep(toSleep)
@@ -414,6 +376,7 @@ func (qm *QManager) bgTasks() {
 		if qm.ctx.Err() != nil {
 			return
 		}
+		fmt.Println(2)
 		//Collate a list of queues to process
 		qm.qzmu.Lock()
 		qz := make([]*Queue, 0, len(qm.qz))
@@ -438,10 +401,12 @@ func (qm *QManager) bgTasks() {
 			}
 
 			//GC the entries in the DB if they have been processed
+			fmt.Println(3)
 			q.GC()
 
 			//Write out a new header. Flush will also do this, but for an active
 			//queue, the flush might not trigger below
+			fmt.Println(4)
 			q.mu.Lock()
 			if q.hdrChanged {
 				err := q.writeHeader()
@@ -450,6 +415,7 @@ func (qm *QManager) bgTasks() {
 				}
 			}
 
+			fmt.Println(5)
 			//There are a couple reasons we might want to flush. We don't
 			//want to do it on an active queue for no reason though
 			if nw.Sub(q.lastDequeue) > IdleFlushTime ||
@@ -464,6 +430,7 @@ func (qm *QManager) bgTasks() {
 				q.mu.Unlock()
 			}
 		}
+		fmt.Println(6)
 
 		qm.qzmu.Lock()
 		for _, q := range toremove {
@@ -699,25 +666,15 @@ func (q *Queue) GC() error {
 	if len(togc) == 0 {
 		return nil
 	}
-	txn := q.mgr.db.NewTransaction(true)
+
+	//txn := q.mgr.db.NewTransaction(true)
 	for _, e := range togc {
 		pmCommittedMessages.Add(-1)
-		err := txn.Delete([]byte(e))
-		if err == badger.ErrTxnTooBig {
-			err := txn.Commit(nil)
-			if err != nil {
-				return err
-			}
-			txn = q.mgr.db.NewTransaction(true)
-			err = txn.Delete([]byte(e))
-			if err != nil {
-				return err
-			}
-		} else if err != nil {
+		if err := rocksdb.QueueDelete([]byte(e)); err != nil {
 			return err
 		}
 	}
-	return txn.Commit(nil)
+	return nil //txn.Commit(nil)
 }
 
 //Flush does three things:
@@ -766,36 +723,26 @@ func (q *Queue) Flush() error {
 	//the elements, so there is no danger of the list being corrupted while
 	//we walk it here. The only danger is that another flush modifies
 	//the Next pointer of the tail, so we hold flushmu to prevent that
-	txn := q.mgr.db.NewTransaction(true)
 
-	//Be prepared to break the transaction into smaller ones
-bulkflush:
-	for {
-		it := ucHead
-		for it != nil {
-			nextit := it.Next
-			bin, err := proto.Marshal(it.Content)
-			if err != nil {
-				panic(err)
-			}
-			err = txn.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
-			if err == badger.ErrTxnTooBig {
-				err := txn.Commit(nil)
-				if err != nil {
-					return err
-				}
-				txn = q.mgr.db.NewTransaction(true)
-				continue bulkflush
-			} else if err != nil {
-				return err
-			}
-			pmCommittedMessages.Add(1)
-			it = nextit
+	wb := rocksdb.NewWriteBatch(rocksdb.QUEUE)
+	it := ucHead
+	for it != nil {
+		nextit := it.Next
+		bin, err := proto.Marshal(it.Content)
+		if err != nil {
+			wb.Commit()
+			panic(err)
 		}
-		break
+		wb.Set([]byte(keyQueueItem(q.hdr.ID, it.Index)), bin)
+		pmCommittedMessages.Add(1)
+		it = nextit
+	}
+	fmt.Println("finished flush")
+	if err := wb.Commit(); err != nil {
+		panic(err)
 	}
 
-	return txn.Commit(nil)
+	return nil
 }
 
 func (q *Queue) Destroy() {
@@ -822,44 +769,16 @@ func (q *Queue) Drops() int64 {
 func (q *Queue) remove() error {
 	//Remove the header
 	hdrprefix := []byte(keyHeader(q.hdr.ID))
-	q.mgr.db.Update(func(txn *badger.Txn) error {
-		fmt.Printf("deleting key %q\n", hdrprefix)
-		txn.Delete(hdrprefix)
-		return nil
-	})
+	if err := rocksdb.QueueDelete(hdrprefix); err != nil {
+		return err
+	}
 
 	pmQueuedMessages.Add(-float64((q.length + q.uncommittedLength)))
 	pmQueuedBytes.Add(-float64((q.size + q.uncommittedSize)))
 
-	//Transactions are limited in size. Be prepared to break up into lots
-	//of smaller transactions if there are a lot of records to delete
-bulkerase:
-	for {
-		txn := q.mgr.db.NewTransaction(true)
-		//Required on RPI
-		//opts.ValueLogLoadingMode = options.FileIO
-		opts := badger.DefaultIteratorOptions
-		opts.PrefetchValues = false
-		it := txn.NewIterator(opts)
-		prefix := []byte(keyQueuePrefix(q.hdr.ID))
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-			err := txn.Delete(it.Item().Key())
-			if err == badger.ErrTxnTooBig {
-				it.Close()
-				err := txn.Commit(nil)
-				if err != nil {
-					return err
-				}
-				continue bulkerase
-			} else if err != nil {
-				it.Close()
-				return err
-			}
-			pmCommittedMessages.Add(-1)
-		}
-		it.Close()
-		break
-	}
+	prefix := []byte(keyQueuePrefix(q.hdr.ID))
+	num := rocksdb.QueueDeletePrefix(prefix)
+	pmCommittedMessages.Add(-float64(num))
 
 	return nil
 }
@@ -869,6 +788,7 @@ func (q *Queue) expired() bool {
 	if q.hdr.Expires == 0 {
 		return false
 	}
+	fmt.Println(time.Now(), time.Unix(0, q.hdr.Expires))
 	return time.Now().UnixNano() > q.hdr.Expires
 }
 
@@ -987,10 +907,7 @@ func (q *Queue) dequeue(refresh bool) *pb.Message {
 
 //Write the header out to the database
 func (q *Queue) writeHeader() error {
-	return q.mgr.db.Update(func(txn *badger.Txn) error {
-		txn.Set([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
-		return nil
-	})
+	return rocksdb.QueueSet([]byte(keyHeader(q.hdr.ID)), q.hdr.Serialize())
 }
 
 func (i *Iterator) Next() {

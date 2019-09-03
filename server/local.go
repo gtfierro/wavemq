@@ -16,6 +16,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"google.golang.org/grpc"
 	_ "google.golang.org/grpc/encoding/gzip"
+
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 var lg = logging.MustGetLogger("main")
@@ -112,6 +114,8 @@ func (s *srv) ConnectionStatus(ctx context.Context, p *pb.ConnectionStatusParams
 
 func (s *srv) Publish(ctx context.Context, p *pb.PublishParams) (*pb.PublishResponse, error) {
 	m, err := s.am.FormMessage(p, s.tm.RouterID())
+	pubspan := opentracing.StartSpan("localpub")
+	defer pubspan.Finish()
 	if err != nil {
 		pmFailedFormMessage.Add(1)
 		return &pb.PublishResponse{
@@ -192,6 +196,8 @@ func (s *srv) Query(p *pb.QueryParams, r pb.WAVEMQ_QueryServer) error {
 	}
 }
 func (s *srv) Subscribe(p *pb.SubscribeParams, r pb.WAVEMQ_SubscribeServer) error {
+	localsubspan := opentracing.StartSpan("localsub")
+	defer localsubspan.Finish()
 	if p.Expiry < 60 {
 		p.Expiry = 60
 	}
@@ -241,8 +247,10 @@ func (s *srv) Subscribe(p *pb.SubscribeParams, r pb.WAVEMQ_SubscribeServer) erro
 			return nil
 		}
 		for {
+			subspan := opentracing.StartSpan("localsub_iter", opentracing.ChildOf(localsubspan.Context()))
 			it := q.Dequeue()
 			if it == nil {
+				subspan.Finish()
 				break
 			}
 			it = pb.ShallowCloneMessageForDrops(it)
@@ -251,6 +259,7 @@ func (s *srv) Subscribe(p *pb.SubscribeParams, r pb.WAVEMQ_SubscribeServer) erro
 			if err != nil {
 				pmFailedProofs.Add(1)
 				lg.Infof("dropping message in subscribe %q due to invalid proof", it.Tbs.Uri)
+				subspan.Finish()
 				continue
 			}
 
@@ -258,14 +267,19 @@ func (s *srv) Subscribe(p *pb.SubscribeParams, r pb.WAVEMQ_SubscribeServer) erro
 			if err != nil {
 				pmFailedDecryption.Add(1)
 				lg.Info("dropping message in subscribe %q: could not prepare: %v", it.Tbs.Uri, err.Reason())
+				subspan.Finish()
 				continue
 			}
+			sendspan := opentracing.StartSpan("send", opentracing.ChildOf(subspan.Context()))
 			uerr := r.Send(&pb.SubscriptionMessage{
 				Message: msg,
 			})
+			sendspan.Finish()
 			if uerr != nil {
+				subspan.Finish()
 				return uerr
 			}
+			subspan.Finish()
 		}
 	}
 }

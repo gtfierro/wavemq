@@ -1,0 +1,36 @@
+language: go
+
+go:
+  - 1.12.x
+
+#env:
+#  - GO111MODULE=on
+
+before_install:
+  - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh  
+  - cd ../../ && mv gtfierro immesys && cd immesys/wavemq
+  - dep ensure
+  - sudo apt-get install -y libsnappy-dev zlib1g-dev libbz2-dev liblz4-dev libzstd-dev  libgflags-dev
+  - git clone https://github.com/facebook/rocksdb
+  - pushd rocksdb
+  - make static_lib
+  - mkdir -p ../rockstorage/lib
+  - cp librocksdb.a ../rockstorage/lib
+  - popd
+  - pushd vendor/github.com/ucbrise/jedi-pairing 
+  - make
+  - popd
+
+addons:
+  apt:
+    update: true
+
+deploy:
+  provider: releases
+  api_key: "$GITHUB_API_TOKEN"
+  file: "wavemq"
+  skip_cleanup: true
+  draft: true
+
+script:
+  - go build

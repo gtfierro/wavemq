@@ -5,20 +5,21 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/creachadair/cityhash"
-	"github.com/dgraph-io/badger"
+	//"github.com/dgraph-io/badger"
 	"github.com/golang/protobuf/proto"
 	"github.com/immesys/wave/wve"
 	pb "github.com/immesys/wavemq/mqpb"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/crypto/sha3"
 	"google.golang.org/grpc"
+
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 //Some instrumentation
@@ -119,7 +120,7 @@ type Terminus struct {
 	cfg *RoutingConfig
 
 	//The database used for storing persisted messages
-	db *badger.DB
+	//db *badger.DB
 
 	//The supported namespaces
 	namespaces map[string]*DesignatedRouter
@@ -154,8 +155,6 @@ type DesignatedRouter struct {
 type RoutingConfig struct {
 	//Our entity
 	RouterEntityFile string
-	//Where persisted messages get stored
-	PersistDataStore string
 	//Designated Routers
 	Router []DesignatedRouter
 	//Namespaces we are a designated router for
@@ -266,47 +265,20 @@ func NewTerminus(qm *QManager, am *AuthModule, cfg *RoutingConfig) (*Terminus, e
 	// "" -> local
 	// "something"
 
-	//Make the persist directory
-	err = os.MkdirAll(cfg.PersistDataStore, 0755)
-	if err != nil {
-		return nil, err
-	}
-
-	//Open the database
-	opts := badger.DefaultOptions
-	//Required on RPI
-	//opts.ValueLogLoadingMode = options.FileIO
-	opts.Dir = cfg.PersistDataStore
-	opts.ValueDir = cfg.PersistDataStore
-	db, err := badger.Open(opts)
-	if err != nil {
-		return nil, err
-	}
-	rv.db = db
-
 	rv.ourNodeId = rv.LoadID()
 
 	//Run the BG tasks
 	go rv.bgTasks()
-	go rv.trimDB()
 	return rv, nil
 }
 
-func (t *Terminus) trimDB() {
-	for {
-		time.Sleep(30 * time.Minute)
-	again:
-		err := t.db.RunValueLogGC(0.5)
-		if err == nil {
-			goto again
-		}
-	}
-}
 func (t *Terminus) RouterID() string {
 	return t.ourNodeId
 }
 
 func (t *Terminus) Publish(m *pb.Message) {
+	publishspan := opentracing.StartSpan("publish")
+	defer publishspan.Finish()
 	pmPublishedMessages.Add(1)
 	//Append the initial routing time
 	m.Timestamps = append(m.Timestamps, time.Now().UnixNano())
@@ -339,6 +311,7 @@ func (t *Terminus) Publish(m *pb.Message) {
 	//Manually call unsubscribe on all queues that have expired
 	//An expiry here is rare, there has to have been no dequeues for like
 	//a week
+	enqueuespan := opentracing.StartSpan("enq_client", opentracing.ChildOf(publishspan.Context()))
 	for _, sub := range clientlist {
 		if sub.q.Ctx.Err() != nil {
 			t.unsubscribeInternalID(sub.subid)
@@ -348,7 +321,9 @@ func (t *Terminus) Publish(m *pb.Message) {
 			//fmt.Printf("post enq length=%d (%p)\n", sub.q.length+sub.q.uncommittedLength, sub.q)
 		}
 	}
+	enqueuespan.Finish()
 
+	persistspan := opentracing.StartSpan("persist", opentracing.ChildOf(publishspan.Context()))
 	//If we are the DR for this and it is a persist message, also persist it
 	if t.drnamespaces[ns] && m.Persist {
 		serial, err := proto.Marshal(m)
@@ -358,6 +333,7 @@ func (t *Terminus) Publish(m *pb.Message) {
 		pmPersistedMessages.Add(1)
 		t.putMessage(fullUri, serial)
 	}
+	persistspan.Finish()
 }
 
 func (t *Terminus) Unsubscribe(entity []byte, subid string) wve.WVE {
@@ -483,6 +459,13 @@ func (tm *Terminus) rMatchSubs(topic string, visitor func(s *subscription)) {
 }
 
 func (t *Terminus) bgTasks() {
+	go func() {
+		for {
+			span := opentracing.StartSpan("BG terminus")
+			time.Sleep(150 * time.Millisecond)
+			span.Finish()
+		}
+	}()
 	for {
 		time.Sleep(5 * time.Second)
 		t.rstree_lock.RLock()
@@ -566,12 +549,14 @@ func (t *Terminus) beginDownstreamPeering(q *Queue) {
 	for {
 		//This way when we unsubscribe this downstream peering will die too
 		ctx, cancel := context.WithCancel(q.Ctx)
+		downstreampeerspan, ctx := opentracing.StartSpanFromContext(ctx, "downstream_peer")
 		err := t.downstreamPeer(ctx, q)
 		pmPeerErrors.Add(1)
 		fmt.Printf("downstream peering error %v\n", err)
 		cancel()
 		if q.Ctx.Err() != nil {
 			//This queue is no more
+			downstreampeerspan.Finish()
 			return
 		}
 		time.Sleep(30 * time.Second)
@@ -615,6 +600,12 @@ func (t *Terminus) downstreamPeer(ctx context.Context, q *Queue) (err error) {
 		if err != nil {
 			panic(err)
 		}
+		span, _ := opentracing.StartSpanFromContext(ctx, "recvdownstream")
+		fmt.Println("got msg", msg.Message.Timestamps)
+		//for i, ts := range msg.Message.Timestamps {
+		//	t := time.Unix(0, ts)
+		//	fmt.Printf("timestamp %d at %s\n", i, t)
+		//}
 		if docaching {
 			if msg.Message.ProofDER == nil && len(msg.Message.ProofHash) == 16 {
 				cacheKey := peerProofCacheKey{}
@@ -629,9 +620,17 @@ func (t *Terminus) downstreamPeer(ctx context.Context, q *Queue) (err error) {
 				proofCache[cacheKey] = msg.Message.ProofDER
 			}
 		}
-		msg.Message.Timestamps = append(msg.Message.Timestamps, time.Now().UnixNano())
+		_now := time.Now()
+		last := len(msg.Message.Timestamps)
+		msg.Message.Timestamps = append(msg.Message.Timestamps, _now.UnixNano())
+		elapsed := _now.Sub(time.Unix(0, msg.Message.Timestamps[last-1]))
+		fmt.Printf("%s elapsed since last ts\n", elapsed)
+
 		pmDownstreamMessages.Add(1)
+		enqueue := opentracing.StartSpan("downstream_queue", opentracing.ChildOf(span.Context()))
 		q.Enqueue(msg.Message)
+		enqueue.Finish()
+		span.Finish()
 	}
 }
 func (t *Terminus) beginUpstreamPeering(q *Queue, dr *DesignatedRouter) {
@@ -719,11 +718,16 @@ func (t *Terminus) upstreamPeer(ctx context.Context, q *Queue, dr *DesignatedRou
 		go func() {
 			for {
 				for {
+					workerspan := opentracing.StartSpan("peeringclient")
 					if ctx.Err() != nil {
+						workerspan.Finish()
 						return
 					}
+					dequeuespan := opentracing.StartSpan("peer_dequeue", opentracing.ChildOf(workerspan.Context()))
 					m := q.Dequeue()
+					dequeuespan.Finish()
 					if m == nil {
+						workerspan.Finish()
 						break
 					}
 					m = pb.ShallowCloneMessageForDrops(m)
@@ -741,14 +745,17 @@ func (t *Terminus) upstreamPeer(ctx context.Context, q *Queue, dr *DesignatedRou
 						m.ProofDER = nil
 						m.ProofHash = cacheKey.Serialize()
 					}
+					peerpubspan := opentracing.StartSpan("peer_publish", opentracing.ChildOf(workerspan.Context()))
 					resp, err := peer.PeerPublish(subctx, &pb.PeerPublishParams{
 						Msg: m,
 					})
+					peerpubspan.Finish()
 
 					if err != nil {
 						cancel()
 						//Abort this connection and reconnect
 						errch <- err
+						workerspan.Finish()
 						return
 					}
 					if resp.Error != nil {
@@ -756,13 +763,16 @@ func (t *Terminus) upstreamPeer(ctx context.Context, q *Queue, dr *DesignatedRou
 							//This is okay, we just need to send the full message
 							m.ProofDER = proofDER
 							m.ProofHash = nil
+							peerpubspan := opentracing.StartSpan("peer_publish_nocache", opentracing.ChildOf(workerspan.Context()))
 							resp, err := peer.PeerPublish(subctx, &pb.PeerPublishParams{
 								Msg: m,
 							})
+							peerpubspan.Finish()
 							if err != nil {
 								//Abort this connection and reconnect
 								cancel()
 								errch <- err
+								workerspan.Finish()
 								return
 							}
 							if resp.Error != nil {

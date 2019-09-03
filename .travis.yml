@@ -3,8 +3,8 @@ language: go
 go:
   - 1.12.x
 
-env:
-  - GO111MODULE=on
+#env:
+#  - GO111MODULE=on
 
 before_install:
   - curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh  

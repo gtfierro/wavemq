@@ -25,5 +25,12 @@ addons:
   apt:
     update: true
 
+deploy:
+  provider: releases
+  api_key: "$GITHUB_API_TOKEN"
+  file: "wavemq"
+  skip_cleanup: true
+  draft: true
+
 script:
   - go build

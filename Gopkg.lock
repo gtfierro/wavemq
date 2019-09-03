@@ -218,12 +218,8 @@
   revision = "00c41edb4634c480e27d634cd74c5989b1f746d8"
 
 [[projects]]
-<<<<<<< HEAD
   branch = "feature-jedi-delegation"
   digest = "1:6f5db3c249a7507e6c2d425ee890b5994cb282aedf0dce932028b0f23301cf2c"
-=======
-  digest = "1:3bfa74a0ff1048393944023df5c8d1acebad10c3cf16456271ecbe6d5d8e00db"
->>>>>>> origin/rocksdb3
   name = "github.com/immesys/wave"
   packages = [
     "consts",
@@ -244,12 +240,8 @@
     "wve",
   ]
   pruneopts = ""
-<<<<<<< HEAD
   revision = "3247c9c9e33a94370507b0399f6160f2058ea7a4"
   source = "github.com/samkumar/wave"
-=======
-  revision = "ffc480625f366be4a08b3be144f43f6ff35a85e3"
->>>>>>> origin/rocksdb3
 
 [[projects]]
   digest = "1:63722a4b1e1717be7b98fc686e0b30d5e7f734b9e93d7dee86293b6deab7ea28"
@@ -386,7 +378,6 @@
   revision = "ea9eea63887261e4d8ed8315f4078e88d540c725"
 
 [[projects]]
-<<<<<<< HEAD
   branch = "master"
   digest = "1:7f8a9fb1e1be04d6f0a20386d3de38ffedba83c09b0eea557867cbafbb885c33"
   name = "github.com/samkumar/reqcache"
@@ -395,8 +386,6 @@
   revision = "7b5ae3605bad69a7d84f20856abe27925d22decf"
 
 [[projects]]
-=======
->>>>>>> origin/rocksdb3
   digest = "1:381bcbeb112a51493d9d998bbba207a529c73dbb49b3fd789e48c63fac1f192c"
   name = "github.com/stretchr/testify"
   packages = [
@@ -443,7 +432,6 @@
   revision = "4c3d16d2a74fea69e1e9693dcc5353e9889757e5"
 
 [[projects]]
-<<<<<<< HEAD
   branch = "master"
   digest = "1:7f6264fd0fbad3c9b5c8cc9b43208c30eca1d6aadb6d13d08d4f3843765b669f"
   name = "github.com/ucbrise/jedi-protocol-go"
@@ -452,8 +440,6 @@
   revision = "fb4cd35aa58ccb3bb0ca271f1684213c9292c750"
 
 [[projects]]
-=======
->>>>>>> origin/rocksdb3
   digest = "1:e85837cb04b78f61688c6eba93ea9d14f60d611e2aaf8319999b1a60d2dafbfa"
   name = "github.com/urfave/cli"
   packages = ["."]
